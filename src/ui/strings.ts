@@ -42,5 +42,9 @@ export const S = {
   navigateApple: 'Cómo llegar (Apple Maps)',
   sheetHandle: 'Cambiar tamaño del panel',
   sheetLabel: 'Gasolineras',
+  searchLabel: 'Buscar gasolineras',
+  searchPlaceholder: 'Buscar por marca, calle o municipio',
+  searchClear: 'Borrar búsqueda',
+  noStationsMatch: (q: string): string => `Ninguna gasolinera coincide con «${q}».`,
   fuelFilterLabel: 'Tipo de combustible',
 } as const;
