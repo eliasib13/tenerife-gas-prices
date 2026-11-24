@@ -42,3 +42,6 @@
 @media (max-width: 767px) {
   .leaflet-bottom { bottom: var(--sheet-peek); }
 }
+@media (min-width: 768px) {
+  .map.leaflet-container { width: auto; height: auto; }
+}

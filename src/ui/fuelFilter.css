@@ -34,3 +34,6 @@
   border-color: var(--c-accent);
   color: var(--c-accent-contrast);
 }
+@media (min-width: 768px) {
+  .fuel-filter { left: 380px; }
+}
