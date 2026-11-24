@@ -23,7 +23,7 @@ export interface AppDeps {
   root: HTMLElement;
   fetchStations: () => Promise<StationsResult>;
   geolocation: Geolocation | undefined;
-  createMapView: (el: HTMLElement) => MapView;
+  createMapView: (el: HTMLElement, opts?: { bottomInset?: () => number }) => MapView;
   storage: StorageLike | null;
   now: () => Date;
   isOnline: () => boolean;
@@ -66,7 +66,6 @@ export function createApp(deps: AppDeps): App {
 
   // ---- DOM ----
   const mapEl = h('div', { class: 'map' });
-  const map = deps.createMapView(mapEl);
 
   const fuelFilter = createFuelFilter({ onSelect: (fuel) => {
     store.setState({ fuel });
@@ -90,6 +89,7 @@ export function createApp(deps: AppDeps): App {
   let mounted: 'list' | 'detail' | null = null;
 
   deps.root.append(mapEl, topBar, controls.el, sheet.el);
+  const map = deps.createMapView(mapEl, { bottomInset: () => sheet.coveredHeight(store.getState().sheet) });
 
   function persistPrefs(): void {
     const s = store.getState();

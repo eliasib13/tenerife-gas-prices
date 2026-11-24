@@ -32,7 +32,7 @@ const BASE: Record<SheetSnap, string> = {
 
 export function createBottomSheet(
   handlers: { onSnapChange(s: SheetSnap): void },
-): Component<{ snap: SheetSnap }> & { body: HTMLElement } {
+): Component<{ snap: SheetSnap }> & { body: HTMLElement; coveredHeight(snap: SheetSnap): number } {
   const handle = h(
     'button',
     { class: 'sheet__handle', type: 'button', 'aria-label': S.sheetHandle, 'aria-expanded': 'false' },
@@ -115,6 +115,11 @@ export function createBottomSheet(
     el.style.transform = '';
   }
 
+  function coveredHeight(s: SheetSnap): number {
+    if (typeof window.matchMedia === 'function' && window.matchMedia('(min-width: 768px)').matches) return 0;
+    return s === 'peek' ? 148 : el.offsetHeight / 2;
+  }
+
   update({ snap });
-  return { el, update, body };
+  return { el, update, body, coveredHeight };
 }

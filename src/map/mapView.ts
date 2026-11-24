@@ -23,7 +23,7 @@ const USER_COLOR = '#1a73e8';
 
 export function createMapView(
   container: HTMLElement,
-  opts?: { tileUrl?: string; animate?: boolean },
+  opts?: { tileUrl?: string; animate?: boolean; bottomInset?: () => number },
 ): MapView {
   const animate = opts?.animate ?? true;
   const map = L.map(container, { zoomControl: false, attributionControl: true, tap: true } as L.MapOptions);
@@ -33,10 +33,15 @@ export function createMapView(
   let dot: L.CircleMarker | null = null;
   let ring: L.Circle | null = null;
 
+  function inset(): number {
+    const v = opts?.bottomInset?.() ?? 0;
+    return Number.isFinite(v) && v > 0 ? v : 0;
+  }
+
   function fitTenerife(): void {
     map.fitBounds(
       [[TENERIFE_BOUNDS.south, TENERIFE_BOUNDS.west], [TENERIFE_BOUNDS.north, TENERIFE_BOUNDS.east]],
-      { padding: [16, 16], animate },
+      { paddingTopLeft: [16, 16], paddingBottomRight: [16, 16 + inset()], animate },
     );
   }
   fitTenerife();
@@ -92,7 +97,11 @@ export function createMapView(
       }
     },
     focus(pos, zoom = 15) {
-      map.setView([pos.lat, pos.lon], zoom, { animate });
+      const off = inset() / 2;
+      let center: L.LatLngExpression = [pos.lat, pos.lon];
+      if (off > 0) center = map.unproject(map.project(center, zoom).add([0, off]), zoom);
+      // Without animation, reset avoids Leaflet's whole-pixel pan rounding.
+      map.setView(center, zoom, off > 0 && !animate ? ({ animate, reset: true } as L.ZoomPanOptions) : { animate });
     },
     fitTenerife,
     onMarkerClick(cb) {
