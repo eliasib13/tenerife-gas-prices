@@ -930,3 +930,150 @@ describe('Addendum B: map container and panel-aware inset', () => {
     expect(h.root.querySelector('.sheet')!.classList.contains('sheet--half')).toBe(true);
   });
 });
+
+describe('search box wiring', () => {
+  const sg1 = makeStation({ id: 'g1', address: 'AV 1', postalCode: '38000', brand: 'ALFA', municipality: 'Güímar', locality: 'GÜÍMAR', lat: 28.1, lon: -16.7, prices: { g95: 1.5, diesel: 1.6 } });
+  const sg2 = makeStation({ id: 'g2', address: 'AV 1', postalCode: '38000', brand: 'BETA', municipality: 'La Laguna', locality: 'LA LAGUNA', lat: 28.3, lon: -16.4, prices: { g95: 1.4, diesel: 1.7 } });
+  const sg3 = makeStation({ id: 'g3', address: 'AV 1', postalCode: '38000', brand: 'CEPSA', municipality: 'Adeje', locality: 'ADEJE', lat: 28.2, lon: -16.5, prices: { g95: 1.6, diesel: 1.3 } });
+  const idByBrand: Record<string, string> = { ALFA: 'g1', BETA: 'g2', CEPSA: 'g3' };
+
+  const setupSearch = (opts: Parameters<typeof setup>[0] = {}) =>
+    setup({ fetch: () => Promise.resolve(result([sg1, sg2, sg3])), ...opts });
+  const input = (h: Harness) => h.root.querySelector('.list-search__input') as HTMLInputElement;
+  const type = (h: Harness, value: string) => {
+    const i = input(h);
+    i.value = value;
+    i.dispatchEvent(new Event('input', { bubbles: true }));
+  };
+  const rowIds = (h: Harness) =>
+    rows(h).map((r) => idByBrand[r.querySelector('.station-row__brand')!.textContent!]!);
+  const markerIds = (h: Harness) => lastMarkers(h).map((m) => m.id);
+  const query = (h: Harness) => (h.app.store.getState() as unknown as { query: string }).query;
+
+  it('S1. typing sets the query and shrinks rows to the matches', async () => {
+    const h = setupSearch();
+    await flush();
+    expect(rowIds(h)).toEqual(['g2', 'g1', 'g3']);
+    type(h, 'cepsa');
+    expect(query(h)).toBe('cepsa');
+    expect(rowIds(h)).toEqual(['g3']);
+    expect(input(h).value).toBe('cepsa');
+  });
+
+  it('S2. map markers have the same ids in the same order as the rows: before, typed, cleared', async () => {
+    const h = setupSearch();
+    await flush();
+    expect(markerIds(h)).toEqual(rowIds(h));
+    expect(markerIds(h)).toEqual(['g2', 'g1', 'g3']);
+    type(h, 'a e');
+    expect(rowIds(h)).toEqual(['g2', 'g3']);
+    expect(markerIds(h)).toEqual(rowIds(h));
+    type(h, '');
+    expect(query(h)).toBe('');
+    expect(rowIds(h)).toEqual(['g2', 'g1', 'g3']);
+    expect(markerIds(h)).toEqual(rowIds(h));
+  });
+
+  it('S3. a query change alone re-sends the markers', async () => {
+    const h = setupSearch();
+    await flush();
+    const before = h.map.setStations!.mock.calls.length;
+    type(h, 'beta');
+    expect(h.map.setStations!.mock.calls.length).toBe(before + 1);
+    expect(markerIds(h)).toEqual(['g2']);
+  });
+
+  it('S4. an accented station matches an accent-less, upper-case query', async () => {
+    const h = setupSearch();
+    await flush();
+    type(h, 'GUIMAR');
+    expect(rowIds(h)).toEqual(['g1']);
+    expect(markerIds(h)).toEqual(['g1']);
+  });
+
+  it('S5. focusing the search at peek raises the sheet to half', async () => {
+    const h = setupSearch();
+    await flush();
+    expect(h.app.store.getState().sheet).toBe('peek');
+    input(h).dispatchEvent(new Event('focus'));
+    expect(h.app.store.getState().sheet).toBe('half');
+  });
+
+  it.each(['half', 'full'] as const)('S6. focusing the search at %s leaves the sheet unchanged', async (sheet) => {
+    const h = setupSearch();
+    await flush();
+    h.app.store.setState({ sheet });
+    input(h).dispatchEvent(new Event('focus'));
+    expect(h.app.store.getState().sheet).toBe(sheet);
+  });
+
+  it('S7. the query is not persisted nor restored by a new app instance', async () => {
+    const storage = memoryStorage();
+    const h = setupSearch({ storage });
+    await flush();
+    h.storage.setItem.mockClear();
+    type(h, 'cepsa');
+    expect(h.storage.setItem).not.toHaveBeenCalled();
+    btn(h, 'Diésel').click();
+    for (const v of storage.map.values()) expect(v).not.toContain('cepsa');
+    h.app.destroy();
+    h.root.remove();
+    const h2 = setupSearch({ storage });
+    await flush();
+    expect(query(h2)).toBe('');
+    expect(input(h2).value).toBe('');
+    expect(rows(h2)).toHaveLength(3);
+  });
+
+  it('S8. changing fuel keeps the query and re-filters list and map', async () => {
+    const h = setupSearch();
+    await flush();
+    type(h, 'a');
+    expect(rowIds(h)).toEqual(['g2', 'g1', 'g3']);
+    type(h, 'cepsa');
+    btn(h, 'Diésel').click();
+    expect(h.app.store.getState().fuel).toBe('diesel');
+    expect(query(h)).toBe('cepsa');
+    expect(input(h).value).toBe('cepsa');
+    expect(rowIds(h)).toEqual(['g3']);
+    expect(markerIds(h)).toEqual(['g3']);
+    type(h, 'beta');
+    expect(rowIds(h)).toEqual(['g2']);
+    expect(markerIds(h)).toEqual(['g2']);
+  });
+
+  it('S9. selecting a station then going back shows the list with the query kept', async () => {
+    const h = setupSearch();
+    await flush();
+    type(h, 'cepsa');
+    (rows(h)[0] as HTMLElement).click();
+    expect(h.app.store.getState().selectedId).toBe('g3');
+    expect(h.root.querySelector('h2')!.textContent).toContain('CEPSA');
+    btn(h, S.back).click();
+    expect(query(h)).toBe('cepsa');
+    expect(input(h).value).toBe('cepsa');
+    expect(rowIds(h)).toEqual(['g3']);
+    expect(markerIds(h)).toEqual(['g3']);
+  });
+
+  it('S10. refresh keeps the query', async () => {
+    const h = setupSearch();
+    await flush();
+    type(h, 'cepsa');
+    await h.app.refresh();
+    await flush();
+    expect(query(h)).toBe('cepsa');
+    expect(input(h).value).toBe('cepsa');
+    expect(rowIds(h)).toEqual(['g3']);
+    expect(markerIds(h)).toEqual(['g3']);
+  });
+
+  it('S11. a query matching nothing shows the no-match message and sends no markers', async () => {
+    const h = setupSearch();
+    await flush();
+    type(h, 'zzz');
+    expect(rows(h)).toHaveLength(0);
+    expect(h.root.querySelector('.list-state')?.textContent).toContain('Ninguna gasolinera coincide con «zzz».');
+    expect(lastMarkers(h)).toEqual([]);
+  });
+});
