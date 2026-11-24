@@ -1,0 +1,36 @@
+.fuel-filter {
+  position: fixed;
+  top: var(--safe-top);
+  left: 0;
+  right: 0;
+  z-index: var(--z-overlay);
+  display: flex;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  padding-left: calc(var(--space-3) + var(--safe-left));
+  padding-right: calc(var(--space-3) + var(--safe-right));
+  overflow-x: auto;
+  scroll-snap-type: x proximity;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+.fuel-filter::-webkit-scrollbar { display: none; }
+.fuel-filter .chip {
+  flex: 0 0 auto;
+  scroll-snap-align: center;
+  min-height: var(--touch);
+  min-width: var(--touch);
+  padding: 0 var(--space-4);
+  border: 1px solid var(--c-border);
+  border-radius: calc(var(--touch) / 2);
+  background: var(--c-bg);
+  color: var(--c-text);
+  font: 600 15px/1 var(--font);
+  cursor: pointer;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+}
+.fuel-filter .chip[aria-pressed="true"] {
+  background: var(--c-accent);
+  border-color: var(--c-accent);
+  color: var(--c-accent-contrast);
+}
