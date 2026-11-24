@@ -20,7 +20,7 @@ type Handler = (event: unknown) => unknown;
 interface FakeCache {
   entries: Map<string, Response>;
   put: (req: unknown, res: Response) => Promise<void>;
-  match: (req: unknown) => Promise<Response | undefined>;
+  match: (req: unknown, opts?: { ignoreVary?: boolean }) => Promise<Response | undefined>;
   keys: () => Promise<string[]>;
   addAll: (reqs: unknown[]) => Promise<void>;
 }
@@ -155,7 +155,7 @@ describe('public/sw.js', () => {
     expect(env.handlers.fetch?.length).toBe(1);
   });
 
-  it('precaches the 4 shell URLs into tgp-shell-v1 on install and calls skipWaiting', async () => {
+  it('precaches the 4 shell URLs into tgp-shell-v2 on install and calls skipWaiting', async () => {
     const event = { waitUntil: vi.fn() };
 
     fire('install', event);
@@ -163,15 +163,16 @@ describe('public/sw.js', () => {
     expect(event.waitUntil).toHaveBeenCalledTimes(1);
     await event.waitUntil.mock.calls[0]![0];
 
-    const cache = env.store.get('tgp-shell-v1');
+    const cache = env.store.get('tgp-shell-v2');
     expect(cache).toBeDefined();
     expect([...cache!.entries.keys()].sort()).toEqual([...SHELL_URLS].sort());
     expect(env.skipWaiting).toHaveBeenCalled();
   });
 
-  it('deletes tgp-shell-* caches other than tgp-shell-v1 on activate and keeps the rest', async () => {
+  it('deletes tgp-shell-* caches other than tgp-shell-v2 (including tgp-shell-v1) on activate and keeps the rest', async () => {
     await env.caches.open('tgp-shell-v0');
     await env.caches.open('tgp-shell-v1');
+    await env.caches.open('tgp-shell-v2');
     await env.caches.open('other');
     const event = { waitUntil: vi.fn() };
 
@@ -181,7 +182,7 @@ describe('public/sw.js', () => {
     await event.waitUntil.mock.calls[0]![0];
 
     const names = [...env.store.keys()].sort();
-    expect(names).toEqual(['other', 'tgp-shell-v1']);
+    expect(names).toEqual(['other', 'tgp-shell-v2']);
     expect(env.claim).toHaveBeenCalled();
   });
 
@@ -214,7 +215,7 @@ describe('public/sw.js', () => {
   });
 
   it('serves a cached same-origin asset without calling fetch', async () => {
-    const cache = await env.caches.open('tgp-shell-v1');
+    const cache = await env.caches.open('tgp-shell-v2');
     await (cache as FakeCache).put(
       'https://app.test/icons/icon.svg',
       new Response('cached-icon'),
@@ -233,6 +234,24 @@ describe('public/sw.js', () => {
     expect(env.fetch).not.toHaveBeenCalled();
   });
 
+  it('looks up the cache with { ignoreVary: true } for a same-origin non-navigation GET', async () => {
+    const cache = (await env.caches.open('tgp-shell-v2')) as FakeCache;
+    await cache.put('https://app.test/icons/icon.svg', new Response('cached-icon'));
+    const match = vi.spyOn(cache, 'match');
+    const event = fetchEvent({
+      url: 'https://app.test/icons/icon.svg',
+      method: 'GET',
+      mode: 'cors',
+    });
+
+    fire('fetch', event);
+
+    const res = (await event.respondWith.mock.calls[0]![0]) as Response;
+    expect(await res.text()).toBe('cached-icon');
+    expect(match).toHaveBeenCalledTimes(1);
+    expect(match).toHaveBeenCalledWith(event.request, { ignoreVary: true });
+  });
+
   it('on a same-origin asset miss, fetches and caches the response when ok', async () => {
     env.fetch.mockImplementationOnce(async () => new Response('fresh-asset', { status: 200 }));
     const event = fetchEvent({
@@ -248,7 +267,7 @@ describe('public/sw.js', () => {
     expect(env.fetch).toHaveBeenCalledTimes(1);
     expect(urlOf(env.fetch.mock.calls[0]![0])).toBe('https://app.test/assets/app.js');
 
-    const cache = env.store.get('tgp-shell-v1') as FakeCache;
+    const cache = env.store.get('tgp-shell-v2') as FakeCache;
     const cached = await cache.match('https://app.test/assets/app.js');
     expect(cached).toBeDefined();
     expect(await cached!.text()).toBe('fresh-asset');
@@ -265,13 +284,13 @@ describe('public/sw.js', () => {
     fire('fetch', event);
 
     await event.respondWith.mock.calls[0]![0];
-    const cache = env.store.get('tgp-shell-v1');
+    const cache = env.store.get('tgp-shell-v2');
     const cached = cache ? await cache.match('https://app.test/assets/gone.js') : undefined;
     expect(cached).toBeUndefined();
   });
 
   it('navigation: returns the network response and updates the cached index.html', async () => {
-    const cache = (await env.caches.open('tgp-shell-v1')) as FakeCache;
+    const cache = (await env.caches.open('tgp-shell-v2')) as FakeCache;
     await cache.put('https://app.test/index.html', new Response('old-index'));
     env.fetch.mockImplementationOnce(async () => new Response('net-index', { status: 200 }));
     const event = fetchEvent({ url: 'https://app.test/', method: 'GET', mode: 'navigate' });
@@ -287,7 +306,7 @@ describe('public/sw.js', () => {
   });
 
   it('navigation: returns the cached index.html when the network rejects', async () => {
-    const cache = (await env.caches.open('tgp-shell-v1')) as FakeCache;
+    const cache = (await env.caches.open('tgp-shell-v2')) as FakeCache;
     await cache.put('https://app.test/index.html', new Response('cached-index'));
     env.fetch.mockImplementationOnce(async () => {
       throw new TypeError('offline');
@@ -298,5 +317,118 @@ describe('public/sw.js', () => {
 
     const res = (await event.respondWith.mock.calls[0]![0]) as Response;
     expect(await res.text()).toBe('cached-index');
+  });
+});
+
+describe('public/sw.js install: hashed assets referenced by index.html', () => {
+  const INDEX_HTML = `<!doctype html><html><head>
+    <link rel="stylesheet" crossorigin href="./assets/index-abc.css">
+    <link rel="icon" href="./icons/icon.svg">
+    <link rel="manifest" href="./manifest.webmanifest">
+    <script type="module" crossorigin src="/assets/index-def.js"></script>
+    <script src="assets/vendor-ghi.js"></script>
+    <script src="./assets/index-def.js"></script>
+    <link rel="stylesheet" href="https://cdn.example.com/assets/ext.css">
+    <script src="https://other.test/assets/ext.js"></script>
+    <script src="./other/not-asset.js"></script>
+    </head><body></body></html>`;
+  const ASSET_URLS = [
+    'https://app.test/assets/index-abc.css',
+    'https://app.test/assets/index-def.js',
+    'https://app.test/assets/vendor-ghi.js',
+  ];
+
+  function fetchedUrls(): string[] {
+    return env.fetch.mock.calls.map((c) => urlOf(c[0]));
+  }
+
+  function serve(html: string, failOn?: string): void {
+    env.fetch.mockImplementation(async (req: unknown) => {
+      const url = urlOf(req);
+      if (failOn && url === failOn) throw new TypeError('network down');
+      if (url === 'https://app.test/index.html') return new Response(html);
+      return new Response('body:' + url);
+    });
+  }
+
+  async function install(): Promise<void> {
+    const event = { waitUntil: vi.fn() };
+    fire('install', event);
+    expect(event.waitUntil).toHaveBeenCalledTimes(1);
+    await event.waitUntil.mock.calls[0]![0];
+  }
+
+  it('caches the shell plus every same-origin asset (relative, bare, root-relative), without duplicates', async () => {
+    serve(INDEX_HTML);
+    await install();
+
+    const cache = env.store.get('tgp-shell-v2')!;
+    expect([...cache.entries.keys()].sort()).toEqual([...SHELL_URLS, ...ASSET_URLS].sort());
+    const fetched = fetchedUrls();
+    for (const url of ASSET_URLS) expect(fetched.filter((u) => u === url)).toHaveLength(1);
+    expect(await cache.entries.get(ASSET_URLS[1]!)!.text()).toBe('body:' + ASSET_URLS[1]);
+    expect(env.skipWaiting).toHaveBeenCalledTimes(1);
+  });
+
+  it('ignores external URLs and non-asset paths', async () => {
+    serve(INDEX_HTML);
+    await install();
+
+    const fetched = fetchedUrls();
+    expect(fetched.some((u) => u.includes('cdn.example.com'))).toBe(false);
+    expect(fetched.some((u) => u.includes('other.test'))).toBe(false);
+    expect(fetched.some((u) => u.includes('not-asset'))).toBe(false);
+    expect(fetched).toHaveLength(SHELL_URLS.length + ASSET_URLS.length);
+  });
+
+  it('resolves assets against the registration scope', async () => {
+    (env.self.registration as { scope: string }).scope = 'https://app.test/sub/';
+    serve('<script src="./assets/a.js"></script><link href="assets/b.css" rel="stylesheet">');
+    env.fetch.mockImplementation(async (req: unknown) => {
+      const url = urlOf(req);
+      if (url === 'https://app.test/sub/index.html') {
+        return new Response('<script src="./assets/a.js"></script><link href="assets/b.css" rel="stylesheet">');
+      }
+      return new Response('x');
+    });
+    await install();
+
+    const cache = env.store.get('tgp-shell-v2')!;
+    expect(cache.entries.has('https://app.test/sub/assets/a.js')).toBe(true);
+    expect(cache.entries.has('https://app.test/sub/assets/b.css')).toBe(true);
+  });
+
+  it('with no assets in index.html, makes no extra addAll and still skips waiting', async () => {
+    serve('<!doctype html><html><head></head><body><script src="/src/main.ts"></script></body></html>');
+    const cache = await env.caches.open('tgp-shell-v2');
+    const addAll = vi.spyOn(cache, 'addAll');
+
+    await install();
+
+    expect(addAll).toHaveBeenCalledTimes(1);
+    expect(fetchedUrls()).toHaveLength(SHELL_URLS.length);
+    expect(env.skipWaiting).toHaveBeenCalledTimes(1);
+  });
+
+  it('adds assets in a second addAll after the shell', async () => {
+    serve(INDEX_HTML);
+    const cache = await env.caches.open('tgp-shell-v2');
+    const addAll = vi.spyOn(cache, 'addAll');
+
+    await install();
+
+    expect(addAll).toHaveBeenCalledTimes(2);
+    expect((addAll.mock.calls[0]![0] as unknown[]).map(urlOf).sort()).toEqual([...SHELL_URLS].sort());
+    expect((addAll.mock.calls[1]![0] as unknown[]).map(urlOf).sort()).toEqual([...ASSET_URLS].sort());
+  });
+
+  it('rejects the install and does not skip waiting when an asset cannot be fetched', async () => {
+    serve(INDEX_HTML, 'https://app.test/assets/index-def.js');
+    const event = { waitUntil: vi.fn() };
+
+    fire('install', event);
+
+    await expect(event.waitUntil.mock.calls[0]![0]).rejects.toBeDefined();
+    expect(env.skipWaiting).not.toHaveBeenCalled();
   });
 });
