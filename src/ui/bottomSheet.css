@@ -1,0 +1,71 @@
+.sheet {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: var(--z-sheet);
+  height: calc(100dvh - var(--safe-top) - 64px);
+  display: flex;
+  flex-direction: column;
+  background: var(--c-bg);
+  color: var(--c-text);
+  border-radius: var(--radius) var(--radius) 0 0;
+  box-shadow: 0 -2px 16px rgba(0, 0, 0, 0.25);
+  padding-bottom: var(--safe-bottom);
+  transition: transform 200ms ease-out;
+  will-change: transform;
+}
+.sheet--peek { transform: translateY(calc(100% - var(--sheet-peek))); }
+.sheet--half { transform: translateY(50%); }
+.sheet--full { transform: translateY(0); }
+.sheet.is-dragging { transition: none; }
+@media (prefers-reduced-motion: reduce) {
+  .sheet { transition: none; }
+}
+.sheet__header {
+  flex: 0 0 auto;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.sheet__handle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: var(--touch);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: grab;
+  touch-action: none;
+}
+.sheet__grabber {
+  display: block;
+  width: 40px;
+  height: 5px;
+  border-radius: 3px;
+  background: var(--c-muted);
+}
+.sheet__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+@media (min-width: 768px) {
+  .sheet,
+  .sheet--peek,
+  .sheet--half,
+  .sheet--full {
+    top: var(--safe-top);
+    right: auto;
+    width: 380px;
+    height: auto;
+    transform: none;
+    border-radius: 0;
+    transition: none;
+  }
+  .sheet__handle { display: none; }
+}
