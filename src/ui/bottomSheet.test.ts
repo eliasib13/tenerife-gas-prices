@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { createBottomSheet, nextSnapOnTap, resolveSnap } from './bottomSheet';
 import { S } from './strings';
 
@@ -361,5 +361,74 @@ describe('createBottomSheet gestures', () => {
     handle.dispatchEvent(pe('pointermove', 420, 1100));
     handle.dispatchEvent(pe('pointerup', 420, 1100));
     expect(onSnapChange).toHaveBeenCalledWith('half');
+  });
+});
+
+describe('coveredHeight', () => {
+  const win = window as unknown as { matchMedia?: unknown };
+  let hadMatchMedia = false;
+  let originalMatchMedia: unknown;
+  let queries: string[] = [];
+
+  function stubMatchMedia(matches: boolean): void {
+    queries = [];
+    win.matchMedia = (q: string) => {
+      queries.push(q);
+      return { matches, media: q };
+    };
+  }
+
+  function sheetWithHeight(h: number) {
+    const { sheet } = setup();
+    vi.spyOn(sheet.el, 'offsetHeight', 'get').mockReturnValue(h);
+    return sheet;
+  }
+
+  beforeEach(() => {
+    hadMatchMedia = 'matchMedia' in window;
+    originalMatchMedia = win.matchMedia;
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    if (hadMatchMedia) win.matchMedia = originalMatchMedia;
+    else delete win.matchMedia;
+    document.body.innerHTML = '';
+  });
+
+  it('on a narrow viewport: peek 148, half and full are half of offsetHeight', () => {
+    stubMatchMedia(false);
+    const sheet = sheetWithHeight(800);
+    expect(sheet.coveredHeight('peek')).toBe(148);
+    expect(sheet.coveredHeight('half')).toBe(400);
+    expect(sheet.coveredHeight('full')).toBe(400);
+    expect(queries).toContain('(min-width: 768px)');
+  });
+
+  it('uses the current offsetHeight on each call', () => {
+    stubMatchMedia(false);
+    const { sheet } = setup();
+    const spy = vi.spyOn(sheet.el, 'offsetHeight', 'get');
+    spy.mockReturnValue(600);
+    expect(sheet.coveredHeight('half')).toBe(300);
+    spy.mockReturnValue(500);
+    expect(sheet.coveredHeight('half')).toBe(250);
+  });
+
+  it('on a wide viewport (min-width: 768px matches) every snap is 0', () => {
+    stubMatchMedia(true);
+    const sheet = sheetWithHeight(800);
+    expect(sheet.coveredHeight('peek')).toBe(0);
+    expect(sheet.coveredHeight('half')).toBe(0);
+    expect(sheet.coveredHeight('full')).toBe(0);
+    expect(queries).toContain('(min-width: 768px)');
+  });
+
+  it('without matchMedia it counts as narrow', () => {
+    delete win.matchMedia;
+    const sheet = sheetWithHeight(800);
+    expect(sheet.coveredHeight('peek')).toBe(148);
+    expect(sheet.coveredHeight('half')).toBe(400);
+    expect(sheet.coveredHeight('full')).toBe(400);
   });
 });

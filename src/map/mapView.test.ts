@@ -98,6 +98,75 @@ describe('createMapView', () => {
     expect(v.getZoom()).toBe(14);
   });
 
+  describe('bottomInset (panel-aware centring)', () => {
+    const target = { lat: 28.3, lon: -16.5 };
+    const proj = (lat: number, lon: number, z: number) => L.CRS.EPSG3857.latLngToPoint(L.latLng(lat, lon), z);
+
+    function makeInset(bottomInset?: () => number): MapView {
+      view = createMapView(div, { animate: false, bottomInset });
+      return view;
+    }
+
+    it('focus with inset 200 puts the target 100px above the container centre', () => {
+      const v = makeInset(() => 200);
+      v.focus(target, 14);
+      const c = v.getCenter();
+      const pc = proj(c.lat, c.lon, 14);
+      const pt = proj(target.lat, target.lon, 14);
+      expect(pc.x - pt.x).toBeCloseTo(0, 3);
+      expect(pc.y - pt.y).toBeCloseTo(100, 3);
+      expect(c.lat).toBeLessThan(target.lat);
+      expect(v.getZoom()).toBe(14);
+    });
+
+    it('focus uses the default zoom 15 with an inset', () => {
+      const v = makeInset(() => 100);
+      v.focus(target);
+      expect(v.getZoom()).toBe(15);
+      const c = v.getCenter();
+      expect(proj(c.lat, c.lon, 15).y - proj(target.lat, target.lon, 15).y).toBeCloseTo(50, 3);
+    });
+
+    it.each([
+      ['0', () => 0],
+      ['undefined option', undefined],
+      ['NaN', () => NaN],
+      ['negative', () => -50],
+    ])('focus with inset %s centres exactly on the target', (_name, fn) => {
+      const v = makeInset(fn as (() => number) | undefined);
+      v.focus(target, 14);
+      expect(v.getCenter().lat).toBeCloseTo(target.lat, 6);
+      expect(v.getCenter().lon).toBeCloseTo(target.lon, 6);
+    });
+
+    it('reads the inset at call time', () => {
+      let inset = 0;
+      const v = makeInset(() => inset);
+      v.focus(target, 14);
+      expect(v.getCenter().lat).toBeCloseTo(target.lat, 6);
+      inset = 200;
+      v.focus(target, 14);
+      const c = v.getCenter();
+      expect(proj(c.lat, c.lon, 14).y - proj(target.lat, target.lon, 14).y).toBeCloseTo(100, 3);
+    });
+
+    it('fitTenerife adds the inset to the bottom-right padding, read at call time', () => {
+      let inset = 0;
+      const fit = vi.spyOn(L.Map.prototype, 'fitBounds').mockImplementation(function (this: L.Map) { return this; });
+      const v = makeInset(() => inset);
+      expect(fit.mock.calls[0]![1]).toEqual({ paddingTopLeft: [16, 16], paddingBottomRight: [16, 16], animate: false });
+      inset = 148;
+      v.fitTenerife();
+      expect(fit.mock.calls[1]![1]).toEqual({ paddingTopLeft: [16, 16], paddingBottomRight: [16, 164], animate: false });
+    });
+
+    it.each([['NaN', NaN], ['negative', -20]])('fitTenerife treats %s inset as 0', (_n, val) => {
+      const fit = vi.spyOn(L.Map.prototype, 'fitBounds').mockImplementation(function (this: L.Map) { return this; });
+      makeInset(() => val);
+      expect(fit.mock.calls[0]![1]).toEqual({ paddingTopLeft: [16, 16], paddingBottomRight: [16, 16], animate: false });
+    });
+  });
+
   describe('mutation coverage', () => {
     it('uses the OpenStreetMap tile URL by default and a custom one when given', () => {
       const spy = vi.spyOn(L, 'tileLayer');
@@ -118,13 +187,13 @@ describe('createMapView', () => {
       const fit = vi.spyOn(L.Map.prototype, 'fitBounds').mockImplementation(function (this: L.Map) { return this; });
       const sv = vi.spyOn(L.Map.prototype, 'setView').mockImplementation(function (this: L.Map) { return this; });
       view = createMapView(div);
-      expect(fit.mock.calls[0]![1]).toEqual({ padding: [16, 16], animate: true });
+      expect(fit.mock.calls[0]![1]).toEqual({ paddingTopLeft: [16, 16], paddingBottomRight: [16, 16], animate: true });
       view.focus({ lat: 28.3, lon: -16.5 });
       expect(sv.mock.calls[0]![0]).toEqual([28.3, -16.5]);
       expect(sv.mock.calls[0]![1]).toBe(15);
       expect(sv.mock.calls[0]![2]).toEqual({ animate: true });
       view.fitTenerife();
-      expect(fit.mock.calls[1]![1]).toEqual({ padding: [16, 16], animate: true });
+      expect(fit.mock.calls[1]![1]).toEqual({ paddingTopLeft: [16, 16], paddingBottomRight: [16, 16], animate: true });
     });
 
     it('animate false is passed to fitBounds and setView', () => {
@@ -132,7 +201,7 @@ describe('createMapView', () => {
       const sv = vi.spyOn(L.Map.prototype, 'setView').mockImplementation(function (this: L.Map) { return this; });
       const v = make();
       v.focus({ lat: 28.3, lon: -16.5 }, 12);
-      expect(fit.mock.calls[0]![1]).toEqual({ padding: [16, 16], animate: false });
+      expect(fit.mock.calls[0]![1]).toEqual({ paddingTopLeft: [16, 16], paddingBottomRight: [16, 16], animate: false });
       expect(sv.mock.calls[0]![1]).toBe(12);
       expect(sv.mock.calls[0]![2]).toEqual({ animate: false });
     });

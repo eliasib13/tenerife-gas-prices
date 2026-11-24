@@ -59,6 +59,8 @@ interface Harness {
   root: HTMLElement;
   fetchStations: ReturnType<typeof vi.fn>;
   map: Record<string, ReturnType<typeof vi.fn>>;
+  createMapView: ReturnType<typeof vi.fn>;
+  mapContainerState: { connectedUnderRoot: boolean | null; childCountAtCall: number | null };
   markerClick: (id: string) => void;
   geo: {
     success: (lat: number, lon: number, acc?: number) => void;
@@ -113,11 +115,17 @@ function setup(opts: {
   });
   const win = new EventTarget();
   const doc = Object.assign(new EventTarget(), { visibilityState: 'visible' });
+  const mapContainerState: Harness['mapContainerState'] = { connectedUnderRoot: null, childCountAtCall: null };
+  const createMapViewMock = vi.fn((el: HTMLElement, _opts?: unknown) => {
+    mapContainerState.connectedUnderRoot = el.isConnected && el.parentElement === root;
+    mapContainerState.childCountAtCall = root.children.length;
+    return map as unknown as ReturnType<AppDeps['createMapView']>;
+  });
   const deps = {
     root,
     fetchStations,
     geolocation: { watchPosition, clearWatch, getCurrentPosition: vi.fn() } as unknown as Geolocation,
-    createMapView: () => map as unknown as ReturnType<AppDeps['createMapView']>,
+    createMapView: createMapViewMock,
     storage,
     now: () => new Date(Date.now()),
     isOnline: () => opts.online ?? true,
@@ -131,6 +139,8 @@ function setup(opts: {
     root,
     fetchStations,
     map,
+    createMapView: createMapViewMock,
+    mapContainerState,
     markerClick: (id) => markerCb(id),
     geo: {
       success: (lat, lon, acc = 20) =>
@@ -854,5 +864,69 @@ describe('user marker follows position appearing or disappearing', () => {
     h.app.store.setState({ geo: { status: 'ok', position: { lat: 28.1, lon: -16.7 }, accuracyM: 20 } });
     expect(h.map.setUserPosition).toHaveBeenCalledTimes(2);
     expect(h.map.setUserPosition).toHaveBeenLastCalledWith({ lat: 28.1, lon: -16.7 }, 20);
+  });
+});
+
+describe('Addendum B: map container and panel-aware inset', () => {
+  let heightSpy: ReturnType<typeof vi.spyOn> | null = null;
+
+  afterEach(() => {
+    heightSpy?.mockRestore();
+    heightSpy = null;
+  });
+
+  type MapOpts = { bottomInset?: () => number };
+  const optsOf = (h: Harness) => h.createMapView.mock.calls[0]![1] as MapOpts | undefined;
+
+  it('B1. createMapView receives the map container already connected as a child of root', () => {
+    const h = setup();
+    expect(h.createMapView).toHaveBeenCalledTimes(1);
+    const el = h.createMapView.mock.calls[0]![0] as HTMLElement;
+    expect(el.classList.contains('map')).toBe(true);
+    expect(h.mapContainerState.connectedUnderRoot).toBe(true);
+  });
+
+  it('B1. root children stay in the order map, top-bar, controls, sheet', () => {
+    const h = setup();
+    const kids = Array.from(h.root.children);
+    expect(kids).toHaveLength(4);
+    expect(kids[0]!.classList.contains('map')).toBe(true);
+    expect(kids[1]!.classList.contains('top-bar')).toBe(true);
+    expect(kids[2]!.classList.contains('controls')).toBe(true);
+    expect(kids[3]!.classList.contains('sheet')).toBe(true);
+  });
+
+  it('B5. createMapView gets a bottomInset callback that follows the current sheet snap', async () => {
+    heightSpy = vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(800);
+    const h = setup();
+    await flush();
+    const opts = optsOf(h);
+    expect(typeof opts?.bottomInset).toBe('function');
+    expect(opts!.bottomInset!()).toBe(148);
+    h.app.store.setState({ sheet: 'half' });
+    expect(opts!.bottomInset!()).toBe(400);
+    h.app.store.setState({ sheet: 'full' });
+    expect(opts!.bottomInset!()).toBe(400);
+    h.app.store.setState({ sheet: 'peek' });
+    expect(opts!.bottomInset!()).toBe(148);
+  });
+
+  it('B5. bottomInset is already 148 for the initial peek state', () => {
+    const h = setup();
+    expect(optsOf(h)!.bottomInset!()).toBe(148);
+  });
+
+  it('B5. selecting from peek focuses after the snap change (inset already the half value)', async () => {
+    heightSpy = vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(800);
+    const h = setup();
+    await flush();
+    const insets: number[] = [];
+    h.map.focus!.mockImplementation(() => {
+      insets.push(optsOf(h)!.bottomInset!());
+    });
+    h.markerClick('B');
+    expect(h.map.focus).toHaveBeenCalledTimes(1);
+    expect(insets).toEqual([400]);
+    expect(h.root.querySelector('.sheet')!.classList.contains('sheet--half')).toBe(true);
   });
 });
