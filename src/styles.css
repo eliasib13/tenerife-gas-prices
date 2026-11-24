@@ -1,0 +1,26 @@
+*, *::before, *::after { box-sizing: border-box; }
+html, body, #app { height: 100%; margin: 0; }
+body {
+  font-family: var(--font);
+  background: var(--c-bg);
+  color: var(--c-text);
+  overscroll-behavior: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.map { position: fixed; inset: 0; z-index: var(--z-map); }
+.top-bar {
+  position: fixed;
+  top: var(--safe-top);
+  left: var(--safe-left);
+  right: var(--safe-right);
+  z-index: var(--z-overlay);
+  padding: var(--space-2);
+}
+button:focus-visible, a:focus-visible, [role="button"]:focus-visible {
+  outline: 3px solid var(--c-accent);
+  outline-offset: 2px;
+}
+@media (min-width: 768px) {
+  .map { left: 380px; }
+  .top-bar { left: calc(380px + var(--safe-left)); }
+}
