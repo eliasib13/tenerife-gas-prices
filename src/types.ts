@@ -44,7 +44,8 @@ export interface AppState {
   geo: GeoState;
   selectedId: string | null;
   sheet: SheetSnap;
-  now: Date;                             // ticks every 30 s for relative times / open status
+  query: string;                         // list search text; session-only, not persisted
+  now: Date;                            // ticks every 30 s for relative times / open status
 }
 
 export interface StationListItem {

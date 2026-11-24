@@ -48,6 +48,7 @@ export function initialState(
     geo: { status: 'pending', position: null, accuracyM: null },
     selectedId: null,
     sheet: 'peek',
+    query: '',
     now,
   };
 }
