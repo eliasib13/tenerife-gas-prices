@@ -177,3 +177,127 @@ describe('selectedStation', () => {
     expect(selectedStation(stateWith({ stations, selectedId: null }))).toBeNull();
   });
 });
+
+describe('listItems with a search query', () => {
+  const hours = 'L-D: 06:00-22:00';
+  const pos = { lat: 28.1, lon: -16.7 };
+
+  it('keeps only stations matching the query that are priced for the fuel', () => {
+    const stations = [
+      makeStation({ id: 'a', brand: 'CEPSA', hours, prices: { g95: 1.4 } }),
+      makeStation({ id: 'b', brand: 'SHELL', hours, prices: { g95: 1.3 } }),
+      makeStation({ id: 'c', brand: 'CEPSA', hours, prices: { diesel: 1.2 } }),
+    ];
+    const items = listItems(stateWith({ stations, fuel: 'g95', query: 'cepsa' }));
+    expect(items.map((i) => i.station.id)).toEqual(['a']);
+  });
+
+  it('an empty or whitespace-only query keeps every priced station', () => {
+    const stations = [
+      makeStation({ id: 'a', brand: 'CEPSA', prices: { g95: 1.4 } }),
+      makeStation({ id: 'b', brand: 'SHELL', prices: { g95: 1.3 } }),
+      makeStation({ id: 'c', brand: 'SHELL', prices: { diesel: 1.2 } }),
+    ];
+    expect(listItems(stateWith({ stations, fuel: 'g95', query: '' })).map((i) => i.station.id)).toEqual(['b', 'a']);
+    expect(listItems(stateWith({ stations, fuel: 'g95', query: '   ' })).map((i) => i.station.id)).toEqual(['b', 'a']);
+  });
+
+  it('matches municipality accent- and case-insensitively', () => {
+    const stations = [
+      makeStation({ id: 'a', municipality: 'Güímar', prices: { g95: 1.4 } }),
+      makeStation({ id: 'b', municipality: 'Adeje', prices: { g95: 1.3 } }),
+    ];
+    const items = listItems(stateWith({ stations, fuel: 'g95', query: 'GUIMAR' }));
+    expect(items.map((i) => i.station.id)).toEqual(['a']);
+  });
+
+  it('a station excluded by the query keeps the tier of the full fuel set', () => {
+    const stations = [
+      makeStation({ id: 'a', brand: 'SHELL', prices: { g95: 1.4 } }),
+      makeStation({ id: 'c', brand: 'CEPSA', prices: { g95: 1.6 } }),
+    ];
+    const unfiltered = listItems(stateWith({ stations, fuel: 'g95' }));
+    const onlyExpensive = listItems(stateWith({ stations, fuel: 'g95', query: 'cepsa' }));
+    expect(onlyExpensive).toHaveLength(1);
+    expect(onlyExpensive[0]!.tier).toBe('expensive');
+    expect(onlyExpensive[0]!.tier).toBe(unfiltered.find((i) => i.station.id === 'c')!.tier);
+    expect(onlyExpensive[0]!.isCheapest).toBe(false);
+  });
+
+  it('keeps isCheapest true when the cheapest station is the only match', () => {
+    const stations = [
+      makeStation({ id: 'a', brand: 'SHELL', prices: { g95: 1.4 } }),
+      makeStation({ id: 'c', brand: 'CEPSA', prices: { g95: 1.6 } }),
+    ];
+    const items = listItems(stateWith({ stations, fuel: 'g95', query: 'shell' }));
+    expect(items).toHaveLength(1);
+    expect(items[0]!.station.id).toBe('a');
+    expect(items[0]!.tier).toBe('cheap');
+    expect(items[0]!.isCheapest).toBe(true);
+  });
+
+  it('no item is isCheapest when the cheapest station is filtered out', () => {
+    const stations = [
+      makeStation({ id: 'a', brand: 'SHELL', prices: { g95: 1.4 } }),
+      makeStation({ id: 'b', brand: 'CEPSA', prices: { g95: 1.5 } }),
+      makeStation({ id: 'c', brand: 'CEPSA', prices: { g95: 1.6 } }),
+    ];
+    const items = listItems(stateWith({ stations, fuel: 'g95', query: 'cepsa' }));
+    expect(items.map((i) => i.station.id)).toEqual(['b', 'c']);
+    expect(items.every((i) => i.isCheapest === false)).toBe(true);
+  });
+
+  it('sorts the filtered set by price', () => {
+    const stations = [
+      makeStation({ id: 'x', brand: 'CEPSA', prices: { g95: 1.6 } }),
+      makeStation({ id: 'y', brand: 'CEPSA', prices: { g95: 1.3 } }),
+      makeStation({ id: 'z', brand: 'SHELL', prices: { g95: 1.1 } }),
+    ];
+    const items = listItems(stateWith({ stations, fuel: 'g95', sortBy: 'price', query: 'cepsa' }));
+    expect(items.map((i) => i.station.id)).toEqual(['y', 'x']);
+  });
+
+  it('sorts the filtered set by distance when a position is known', () => {
+    const stations = [
+      makeStation({ id: 'far', brand: 'CEPSA', lat: 28.4, lon: -16.5, prices: { g95: 1.3 } }),
+      makeStation({ id: 'near', brand: 'CEPSA', lat: 28.11, lon: -16.7, prices: { g95: 1.6 } }),
+      makeStation({ id: 'excluded', brand: 'SHELL', lat: 28.1, lon: -16.7, prices: { g95: 1.5 } }),
+    ];
+    const items = listItems(
+      stateWith({
+        stations,
+        fuel: 'g95',
+        sortBy: 'distance',
+        query: 'cepsa',
+        geo: { status: 'ok', position: pos, accuracyM: 5 },
+      }),
+    );
+    expect(items.map((i) => i.station.id)).toEqual(['near', 'far']);
+  });
+
+  it('a query matching nothing returns no items and no markers', () => {
+    const stations = [makeStation({ id: 'a', brand: 'CEPSA', prices: { g95: 1.4 } })];
+    const s = stateWith({ stations, fuel: 'g95', query: 'zzzz' });
+    expect(listItems(s)).toEqual([]);
+    expect(markerModels(listItems(s), null)).toEqual([]);
+  });
+
+  it('markers and list rows are the same filtered set in the same order', () => {
+    const stations = [
+      makeStation({ id: 'a', municipality: 'La Laguna', prices: { g95: 1.4 } }),
+      makeStation({ id: 'b', municipality: 'Adeje', prices: { g95: 1.3 } }),
+      makeStation({ id: 'c', municipality: 'San Cristóbal de La Laguna', prices: { g95: 1.5 } }),
+    ];
+    const items = listItems(stateWith({ stations, fuel: 'g95', sortBy: 'price', query: 'laguna' }));
+    expect(items.map((i) => i.station.id)).toEqual(['a', 'c']);
+    expect(markerModels(items, 'c').map((m) => m.id)).toEqual(items.map((i) => i.station.id));
+  });
+});
+
+describe('selectedStation with a search query', () => {
+  it('still returns a selected station that the query excludes', () => {
+    const stations = [makeStation({ id: 'a', brand: 'SHELL' }), makeStation({ id: 'b', brand: 'CEPSA' })];
+    const s = stateWith({ stations, selectedId: 'a', query: 'cepsa' });
+    expect(selectedStation(s)).toBe(stations[0]);
+  });
+});

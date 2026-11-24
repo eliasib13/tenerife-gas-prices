@@ -88,6 +88,7 @@ describe('initialState', () => {
       geo: { status: 'pending', position: null, accuracyM: null },
       selectedId: null,
       sheet: 'peek',
+      query: '',
       now,
     });
   });
@@ -96,6 +97,11 @@ describe('initialState', () => {
     const s = initialState({}, now, false);
     expect(s.online).toBe(false);
     expect(s.now).toBe(now);
+  });
+
+  it('starts with an empty query, with or without preferences', () => {
+    expect(initialState({}, now, true).query).toBe('');
+    expect(initialState({ fuel: 'diesel', sortBy: 'price' }, now, false).query).toBe('');
   });
 
   it('respects the preferences', () => {
