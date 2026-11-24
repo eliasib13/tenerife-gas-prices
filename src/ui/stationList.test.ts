@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { createStationList } from './stationList';
 import type { StationListProps } from './stationList';
 import { S } from './strings';
@@ -37,8 +37,12 @@ function twoItems(): StationListItem[] {
   ];
 }
 
+afterEach(() => {
+  document.body.replaceChildren();
+});
+
 function mount(over: Partial<StationListProps> = {}) {
-  const h = { onSelect: vi.fn(), onSort: vi.fn(), onRetry: vi.fn() };
+  const h = { onSelect: vi.fn(), onSort: vi.fn(), onRetry: vi.fn(), onSearch: vi.fn(), onSearchFocus: vi.fn() };
   const c = createStationList(h);
   const props: StationListProps = {
     status: 'ready',
@@ -48,11 +52,18 @@ function mount(over: Partial<StationListProps> = {}) {
     sortBy: 'price',
     canSortByDistance: true,
     geoStatus: 'ok',
+    query: '',
     ...over,
   };
   c.update(props);
   document.body.appendChild(c.el);
   return { c, h, props };
+}
+
+function searchInput(el: HTMLElement): HTMLInputElement {
+  const i = el.querySelector<HTMLInputElement>('input.list-search__input');
+  if (!i) throw new Error('search input not found');
+  return i;
 }
 
 function btn(el: HTMLElement, text: string): HTMLButtonElement {
@@ -285,5 +296,179 @@ describe('createStationList structure (mutation)', () => {
     const e = mount({ items: [] });
     const p2 = e.c.el.querySelector('.list-content > p.list-state')!;
     expect(p2.textContent).toBe(S.noStationsForFuel('Gasolina 95'));
+  });
+});
+
+describe('createStationList search', () => {
+  it('renders a search input with label, placeholder and attributes', () => {
+    const { c } = mount();
+    const input = searchInput(c.el);
+    expect(input.getAttribute('type')).toBe('search');
+    expect(input.getAttribute('aria-label')).toBe(S.searchLabel);
+    expect(input.getAttribute('placeholder')).toBe(S.searchPlaceholder);
+    expect(input.getAttribute('autocomplete')).toBe('off');
+    expect(input.getAttribute('autocapitalize')).toBe('off');
+    expect(input.getAttribute('spellcheck')).toBe('false');
+    expect(input.getAttribute('enterkeyhint')).toBe('search');
+    expect(input.closest('.list-header')).not.toBeNull();
+    expect(input.closest('.list-search')).not.toBeNull();
+  });
+
+  it('keeps the same input node across updates', () => {
+    const { c, props } = mount();
+    const before = searchInput(c.el);
+    c.update({ ...props, query: 'abc' });
+    c.update({ ...props, query: 'abcd', items: [] });
+    c.update({ ...props, status: 'loading', items: [] });
+    expect(searchInput(c.el)).toBe(before);
+  });
+
+  it('input event calls onSearch with the typed value', () => {
+    const { c, h } = mount();
+    const input = searchInput(c.el);
+    input.value = 'Cepsa';
+    input.dispatchEvent(new Event('input'));
+    expect(h.onSearch).toHaveBeenCalledTimes(1);
+    expect(h.onSearch).toHaveBeenCalledWith('Cepsa');
+  });
+
+  it('focus event calls onSearchFocus once and not onSearch', () => {
+    const { c, h } = mount();
+    searchInput(c.el).dispatchEvent(new Event('focus'));
+    expect(h.onSearchFocus).toHaveBeenCalledTimes(1);
+    expect(h.onSearch).not.toHaveBeenCalled();
+  });
+
+  it('update sets the input value from query', () => {
+    const { c, props } = mount();
+    c.update({ ...props, query: 'abc' });
+    expect(searchInput(c.el).value).toBe('abc');
+    c.update({ ...props, query: '' });
+    expect(searchInput(c.el).value).toBe('');
+  });
+
+  it('does not reassign the value when it already equals query (caret preserved)', () => {
+    const { c, props } = mount();
+    const input = searchInput(c.el);
+    input.value = 'abc';
+    input.setSelectionRange(1, 1);
+    c.update({ ...props, query: 'abc' });
+    expect(input.value).toBe('abc');
+    expect(input.selectionStart).toBe(1);
+    expect(input.selectionEnd).toBe(1);
+  });
+
+  it('writes the input value only when it differs from query', () => {
+    const { c, props } = mount();
+    const input = searchInput(c.el);
+    const proto = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!;
+    let writes = 0;
+    Object.defineProperty(input, 'value', {
+      configurable: true,
+      get() {
+        return proto.get!.call(this);
+      },
+      set(v: string) {
+        writes++;
+        proto.set!.call(this, v);
+      },
+    });
+    input.value = 'abc';
+    writes = 0;
+    c.update({ ...props, query: 'abc' });
+    expect(writes).toBe(0);
+    c.update({ ...props, query: 'abd' });
+    expect(writes).toBe(1);
+    expect(input.value).toBe('abd');
+  });
+
+  it('only Enter blurs the search input; other keys keep focus', () => {
+    const { c } = mount();
+    const input = searchInput(c.el);
+    input.focus();
+    expect(document.activeElement).toBe(input);
+    for (const key of ['a', 'Escape']) {
+      input.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
+      expect(document.activeElement).toBe(input);
+    }
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    expect(document.activeElement).not.toBe(input);
+  });
+
+  it('clear button is hidden right after creation, before any update', () => {
+    const c = createStationList({
+      onSelect: vi.fn(),
+      onSort: vi.fn(),
+      onRetry: vi.fn(),
+      onSearch: vi.fn(),
+      onSearchFocus: vi.fn(),
+    });
+    const clear = c.el.querySelector<HTMLButtonElement>('button.list-search__clear')!;
+    expect(clear.hidden).toBe(true);
+  });
+
+  it('clear button is hidden when query is empty and visible when it is not', () => {
+    const { c, props } = mount({ query: '' });
+    const clear = c.el.querySelector<HTMLButtonElement>('button.list-search__clear')!;
+    expect(clear).not.toBeNull();
+    expect(clear.getAttribute('type')).toBe('button');
+    expect(clear.getAttribute('aria-label')).toBe(S.searchClear);
+    expect(clear.hidden).toBe(true);
+    c.update({ ...props, query: 'x' });
+    expect(clear.hidden).toBe(false);
+    c.update({ ...props, query: '' });
+    expect(clear.hidden).toBe(true);
+  });
+
+  it('clear click calls onSearch with empty string and focuses the input', () => {
+    const { c, h } = mount({ query: 'x' });
+    const input = searchInput(c.el);
+    const clear = c.el.querySelector<HTMLButtonElement>('button.list-search__clear')!;
+    clear.click();
+    expect(h.onSearch).toHaveBeenCalledTimes(1);
+    expect(h.onSearch).toHaveBeenCalledWith('');
+    expect(document.activeElement).toBe(input);
+  });
+
+  it('Enter keydown blurs the input', () => {
+    const { c } = mount({ query: 'cepsa' });
+    const input = searchInput(c.el);
+    input.focus();
+    expect(document.activeElement).toBe(input);
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    expect(document.activeElement).not.toBe(input);
+  });
+
+  it('title counts the items it is given (already filtered)', () => {
+    const { c, props } = mount({ query: 'cepsa', items: [twoItems()[1]!] });
+    expect(c.el.querySelector('h2')?.textContent).toBe(S.stationsCount(1, 'Gasolina 95'));
+    c.update({ ...props, query: '', items: twoItems() });
+    expect(c.el.querySelector('h2')?.textContent).toBe(S.stationsCount(2, 'Gasolina 95'));
+  });
+
+  it('empty items with a non-blank query shows noStationsMatch with the query', () => {
+    const { c } = mount({ query: 'foo', items: [] });
+    const p = c.el.querySelector('.list-content > p.list-state')!;
+    expect(p.textContent).toBe(S.noStationsMatch('foo'));
+    expect(c.el.querySelector('.station-row')).toBeNull();
+  });
+
+  it('empty items with an empty or blank query shows noStationsForFuel', () => {
+    const empty = mount({ query: '', items: [] });
+    expect(empty.c.el.querySelector('.list-content > p.list-state')!.textContent).toBe(
+      S.noStationsForFuel('Gasolina 95'),
+    );
+    const blank = mount({ query: '  ', items: [] });
+    expect(blank.c.el.querySelector('.list-content > p.list-state')!.textContent).toBe(
+      S.noStationsForFuel('Gasolina 95'),
+    );
+  });
+
+  it('loading and error states keep the search input present', () => {
+    const l = mount({ status: 'loading', items: [], query: 'foo' });
+    expect(searchInput(l.c.el)).not.toBeNull();
+    const e = mount({ status: 'error', lastError: 'network', items: [], query: 'foo' });
+    expect(searchInput(e.c.el)).not.toBeNull();
+    expect(e.c.el.querySelector('.list-state')).not.toBeNull();
   });
 });
