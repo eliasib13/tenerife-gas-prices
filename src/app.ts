@@ -84,6 +84,10 @@ export function createApp(deps: AppDeps): App {
       persistPrefs();
     },
     onRetry: () => void refresh(),
+    onSearch: (query) => store.setState({ query }),
+    onSearchFocus: () => {
+      if (store.getState().sheet === 'peek') store.setState({ sheet: 'half' });
+    },
   });
   const detail = createStationDetail({ onBack: () => store.setState({ selectedId: null }) });
   let mounted: 'list' | 'detail' | null = null;
@@ -179,6 +183,7 @@ export function createApp(deps: AppDeps): App {
   // ---- rendering ----
   let prevStations: Station[] | null = null;
   let prevFuel: AppState['fuel'] | null = null;
+  let prevQuery: string | null = null;
   let prevSelected: string | null | undefined = undefined;
   let prevPos: LatLon | null | undefined = undefined;
   let prevAcc: number | null | undefined = undefined;
@@ -187,9 +192,10 @@ export function createApp(deps: AppDeps): App {
     if (destroyed) return;
     const items = listItems(s);
 
-    if (s.stations !== prevStations || s.fuel !== prevFuel || s.selectedId !== prevSelected) {
+    if (s.stations !== prevStations || s.fuel !== prevFuel || s.query !== prevQuery || s.selectedId !== prevSelected) {
       prevStations = s.stations;
       prevFuel = s.fuel;
+      prevQuery = s.query;
       prevSelected = s.selectedId;
       map.setStations(markerModels(items, s.selectedId));
     }
@@ -239,6 +245,7 @@ export function createApp(deps: AppDeps): App {
         status: s.status,
         lastError: s.lastError,
         items,
+        query: s.query,
         fuel: fuelById(s.fuel),
         sortBy: effectiveSort(s),
         canSortByDistance: s.geo.position !== null,
