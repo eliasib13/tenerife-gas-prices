@@ -65,3 +65,35 @@
   .price--mid { color: #f2b73b; }
   .price--expensive { color: #ff8a85; }
 }
+.list-search { position: relative; margin-bottom: var(--space-2); }
+.list-search__input {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: var(--touch);
+  padding: 0 calc(var(--touch) + var(--space-1, 4px)) 0 var(--space-3);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius);
+  background: var(--c-surface);
+  color: var(--c-text);
+  font: inherit;
+  font-size: 16px;
+}
+.list-search__input::-webkit-search-cancel-button,
+.list-search__input::-webkit-search-decoration {
+  -webkit-appearance: none;
+  appearance: none;
+}
+.list-search__clear {
+  position: absolute;
+  top: 0;
+  right: 0;
+  min-width: 44px;
+  min-height: var(--touch);
+  border: 0;
+  background: transparent;
+  color: var(--c-muted);
+  font: inherit;
+  font-size: 1.25rem;
+  cursor: pointer;
+}
+.list-search__clear[hidden] { display: none; }

@@ -12,24 +12,50 @@ export interface StationListProps {
   sortBy: SortBy;
   canSortByDistance: boolean;
   geoStatus: GeoStatus;
+  query: string;
 }
 
 export function createStationList(handlers: {
   onSelect(id: string): void;
   onSort(s: SortBy): void;
   onRetry(): void;
+  onSearch(q: string): void;
+  onSearchFocus(): void;
 }): Component<StationListProps> {
   const title = h('h2', { class: 'list-title' });
   const nearest = h('button', { type: 'button', class: 'seg', 'aria-pressed': 'false' }, S.sortNearest);
   const cheapest = h('button', { type: 'button', class: 'seg', 'aria-pressed': 'true' }, S.sortCheapest);
   nearest.addEventListener('click', () => handlers.onSort('distance'));
   cheapest.addEventListener('click', () => handlers.onSort('price'));
+  const input = h('input', {
+    type: 'search',
+    class: 'list-search__input',
+    'aria-label': S.searchLabel,
+    placeholder: S.searchPlaceholder,
+    autocomplete: 'off',
+    autocapitalize: 'off',
+    spellcheck: 'false',
+    enterkeyhint: 'search',
+  });
+  const clear = h('button', { type: 'button', class: 'list-search__clear', 'aria-label': S.searchClear }, '×');
+  clear.hidden = true;
+  input.addEventListener('input', () => handlers.onSearch(input.value));
+  input.addEventListener('focus', () => handlers.onSearchFocus());
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') input.blur();
+  });
+  clear.addEventListener('click', () => {
+    handlers.onSearch('');
+    input.focus();
+  });
+  const search = h('div', { class: 'list-search' }, input, clear);
   const hint = h('p', { class: 'list-hint' });
   const content = h('div', { class: 'list-content' });
   const header = h(
     'div',
     { class: 'list-header' },
     title,
+    search,
     h('div', { class: 'segmented', role: 'group' }, nearest, cheapest),
     hint,
   );
@@ -66,6 +92,8 @@ export function createStationList(handlers: {
   }
 
   function update(p: StationListProps): void {
+    if (input.value !== p.query) input.value = p.query;
+    clear.hidden = p.query === '';
     title.textContent = S.stationsCount(p.items.length, p.fuel.label);
     nearest.setAttribute('aria-pressed', p.sortBy === 'distance' ? 'true' : 'false');
     cheapest.setAttribute('aria-pressed', p.sortBy === 'price' ? 'true' : 'false');
@@ -88,7 +116,10 @@ export function createStationList(handlers: {
         ),
       );
     } else if (p.items.length === 0) {
-      content.replaceChildren(h('p', { class: 'list-state' }, S.noStationsForFuel(p.fuel.label)));
+      const q = p.query.trim();
+      content.replaceChildren(
+        h('p', { class: 'list-state' }, q !== '' ? S.noStationsMatch(q) : S.noStationsForFuel(p.fuel.label)),
+      );
     } else {
       const ul = h('ul', { class: 'station-list' });
       for (const item of p.items) ul.appendChild(h('li', {}, row(item)));
