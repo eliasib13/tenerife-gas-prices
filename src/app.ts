@@ -7,6 +7,7 @@ import { haversineKm, isWithinBounds } from './domain/geo';
 import { openStatus } from './domain/hours';
 import { fuelById } from './fuels';
 import { watchUserLocation } from './geo/location';
+import { loadFavorites, saveFavorites, toggleFavorite } from './state/favorites';
 import { loadPrefs, savePrefs } from './state/preferences';
 import { availableFuels, effectiveSort, listItems, markerModels, selectedStation } from './state/selectors';
 import { loadCachedStations, saveCachedStations } from './state/stationCache';
@@ -45,7 +46,7 @@ const STALE_MS = 30 * 60_000;
 
 export function createApp(deps: AppDeps): App {
   const { storage } = deps;
-  const store = createStore<AppState>(initialState(loadPrefs(storage), deps.now(), deps.isOnline()));
+  const store = createStore<AppState>(initialState(loadPrefs(storage), deps.now(), deps.isOnline(), loadFavorites(storage)));
 
   const cached = loadCachedStations(storage);
   if (cached) {
@@ -83,13 +84,21 @@ export function createApp(deps: AppDeps): App {
       store.setState({ sortBy });
       persistPrefs();
     },
+    onScope: (scope) => {
+      store.setState({ scope });
+      persistPrefs();
+    },
+    onToggleFavorite: toggleFav,
     onRetry: () => void refresh(),
     onSearch: (query) => store.setState({ query }),
     onSearchFocus: () => {
       if (store.getState().sheet === 'peek') store.setState({ sheet: 'half' });
     },
   });
-  const detail = createStationDetail({ onBack: () => store.setState({ selectedId: null }) });
+  const detail = createStationDetail({
+    onBack: () => store.setState({ selectedId: null }),
+    onToggleFavorite: toggleFav,
+  });
   let mounted: 'list' | 'detail' | null = null;
 
   deps.root.append(mapEl, topBar, controls.el, sheet.el);
@@ -100,7 +109,13 @@ export function createApp(deps: AppDeps): App {
 
   function persistPrefs(): void {
     const s = store.getState();
-    savePrefs(storage, { fuel: s.fuel, sortBy: s.sortBy });
+    savePrefs(storage, { fuel: s.fuel, sortBy: s.sortBy, scope: s.scope });
+  }
+
+  function toggleFav(id: string): void {
+    const favorites = toggleFavorite(store.getState().favorites, id);
+    store.setState({ favorites });
+    saveFavorites(storage, favorites);
   }
 
   // ---- actions ----
@@ -187,6 +202,8 @@ export function createApp(deps: AppDeps): App {
   let prevStations: Station[] | null = null;
   let prevFuel: AppState['fuel'] | null = null;
   let prevQuery: string | null = null;
+  let prevScope: AppState['scope'] | null = null;
+  let prevFavorites: string[] | null = null;
   let prevSelected: string | null | undefined = undefined;
   let prevPos: LatLon | null | undefined = undefined;
   let prevAcc: number | null | undefined = undefined;
@@ -195,10 +212,12 @@ export function createApp(deps: AppDeps): App {
     if (destroyed) return;
     const items = listItems(s);
 
-    if (s.stations !== prevStations || s.fuel !== prevFuel || s.query !== prevQuery || s.selectedId !== prevSelected) {
+    if (s.stations !== prevStations || s.fuel !== prevFuel || s.query !== prevQuery || s.scope !== prevScope || s.favorites !== prevFavorites || s.selectedId !== prevSelected) {
       prevStations = s.stations;
       prevFuel = s.fuel;
       prevQuery = s.query;
+      prevScope = s.scope;
+      prevFavorites = s.favorites;
       prevSelected = s.selectedId;
       map.setStations(markerModels(items, s.selectedId));
     }
@@ -238,6 +257,7 @@ export function createApp(deps: AppDeps): App {
             : null,
         openState: item ? item.openState : openStatus(selected.hours, s.now),
         platform: deps.platform,
+        isFavorite: s.favorites.includes(selected.id),
       });
       if (mounted !== 'detail') {
         sheet.body.replaceChildren(detail.el);
@@ -249,6 +269,8 @@ export function createApp(deps: AppDeps): App {
         lastError: s.lastError,
         items,
         query: s.query,
+        scope: s.scope,
+        favoriteCount: s.favorites.length,
         fuel: fuelById(s.fuel),
         sortBy: effectiveSort(s),
         canSortByDistance: s.geo.position !== null,
