@@ -19,7 +19,7 @@ createApp({
   root: document.getElementById('app')!,
   fetchStations: () => fetchStations(),
   geolocation: navigator.geolocation,
-  createMapView,
+  createMapView: (el, o) => createMapView(el, { ...o, cartoKey: import.meta.env.VITE_CARTO_KEY }),
   storage: safeLocalStorage(),
   now: () => new Date(),
   isOnline: () => navigator.onLine !== false,

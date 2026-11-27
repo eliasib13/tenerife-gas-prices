@@ -3,3 +3,5 @@ dist
 reports
 .stryker-tmp
 *.log
+.env.local
+.env.*.local
