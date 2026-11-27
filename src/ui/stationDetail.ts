@@ -13,15 +13,31 @@ export interface StationDetailProps {
   distanceKm: number | null;
   openState: OpenState;
   platform: 'ios' | 'other';
+  isFavorite: boolean;
 }
 
-export function createStationDetail(handlers: { onBack(): void }): Component<StationDetailProps> {
+export function createStationDetail(handlers: {
+  onBack(): void;
+  onToggleFavorite(stationId: string): void;
+}): Component<StationDetailProps> {
   const el = h('div', { class: 'station-detail' });
 
   function update(p: StationDetailProps): void {
     const s = p.station;
     const back = h('button', { type: 'button', class: 'back-btn', 'aria-label': S.backToList }, S.back);
     back.addEventListener('click', () => handlers.onBack());
+
+    const fav = h(
+      'button',
+      {
+        type: 'button',
+        class: 'fav-btn fav-btn--detail',
+        'aria-pressed': String(p.isFavorite),
+        'aria-label': p.isFavorite ? S.favoriteRemove : S.favoriteAdd,
+      },
+      p.isFavorite ? '★' : '☆',
+    );
+    fav.addEventListener('click', () => handlers.onToggleFavorite(s.id));
 
     const badge = is24h(s.hours)
       ? h('span', { class: 'badge badge--open' }, S.open24h)
@@ -47,7 +63,7 @@ export function createStationDetail(handlers: { onBack(): void }): Component<Sta
     links[0]!.classList.add('nav-btn--primary');
 
     el.replaceChildren(
-      back,
+      h('div', { class: 'detail-top' }, back, fav),
       h('h2', { class: 'detail-title' }, s.brand || S.unbranded),
       h(
         'address',
