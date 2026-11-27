@@ -48,4 +48,11 @@ export const S = {
   searchClear: 'Borrar búsqueda',
   noStationsMatch: (q: string): string => `Ninguna gasolinera coincide con «${q}».`,
   fuelFilterLabel: 'Tipo de combustible',
+  scopeLabel: 'Mostrar',
+  scopeAll: 'Todas',
+  scopeFavorites: 'Favoritas',
+  favoriteAdd: 'Añadir a favoritas',
+  favoriteRemove: 'Quitar de favoritas',
+  noFavorites: 'Aún no tienes gasolineras favoritas. Toca ☆ en una gasolinera para guardarla.',
+  noFavoritesForFuel: (fuel: string): string => `Ninguna de tus favoritas vende ${fuel}.`,
 } as const;

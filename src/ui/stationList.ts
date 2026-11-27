@@ -1,4 +1,4 @@
-import type { Component, FetchErrorKind, FuelDef, GeoStatus, SortBy, StationListItem, AppState } from '../types';
+import type { Component, ListScope, FetchErrorKind, FuelDef, GeoStatus, SortBy, StationListItem, AppState } from '../types';
 import { h } from './dom';
 import { S } from './strings';
 import { formatDistance, formatPrice } from '../domain/format';
@@ -13,6 +13,8 @@ export interface StationListProps {
   canSortByDistance: boolean;
   geoStatus: GeoStatus;
   query: string;
+  scope: ListScope;
+  favoriteCount: number;
 }
 
 export function createStationList(handlers: {
@@ -21,12 +23,18 @@ export function createStationList(handlers: {
   onRetry(): void;
   onSearch(q: string): void;
   onSearchFocus(): void;
+  onScope(scope: ListScope): void;
+  onToggleFavorite(id: string): void;
 }): Component<StationListProps> {
   const title = h('h2', { class: 'list-title' });
   const nearest = h('button', { type: 'button', class: 'seg', 'aria-pressed': 'false' }, S.sortNearest);
   const cheapest = h('button', { type: 'button', class: 'seg', 'aria-pressed': 'true' }, S.sortCheapest);
   nearest.addEventListener('click', () => handlers.onSort('distance'));
   cheapest.addEventListener('click', () => handlers.onSort('price'));
+  const scopeAll = h('button', { type: 'button', class: 'seg', 'aria-pressed': 'true' }, S.scopeAll);
+  const scopeFav = h('button', { type: 'button', class: 'seg', 'aria-pressed': 'false' }, S.scopeFavorites);
+  scopeAll.addEventListener('click', () => handlers.onScope('all'));
+  scopeFav.addEventListener('click', () => handlers.onScope('favorites'));
   const input = h('input', {
     type: 'search',
     class: 'list-search__input',
@@ -56,6 +64,7 @@ export function createStationList(handlers: {
     { class: 'list-header' },
     title,
     search,
+    h('div', { class: 'segmented segmented--scope', role: 'group', 'aria-label': S.scopeLabel }, scopeAll, scopeFav),
     h('div', { class: 'segmented', role: 'group' }, nearest, cheapest),
     hint,
   );
@@ -88,13 +97,26 @@ export function createStationList(handlers: {
       h('span', { class: `price price--${item.tier}` }, formatPrice(item.price)),
     );
     b.addEventListener('click', () => handlers.onSelect(s.id));
-    return b;
+    const star = h(
+      'button',
+      {
+        type: 'button',
+        class: 'fav-btn',
+        'aria-pressed': item.favorite ? 'true' : 'false',
+        'aria-label': item.favorite ? S.favoriteRemove : S.favoriteAdd,
+      },
+      item.favorite ? '★' : '☆',
+    );
+    star.addEventListener('click', () => handlers.onToggleFavorite(s.id));
+    return h('li', { class: 'station-item' }, b, star);
   }
 
   function update(p: StationListProps): void {
     if (input.value !== p.query) input.value = p.query;
     clear.hidden = p.query === '';
     title.textContent = S.stationsCount(p.items.length, p.fuel.label);
+    scopeAll.setAttribute('aria-pressed', p.scope === 'all' ? 'true' : 'false');
+    scopeFav.setAttribute('aria-pressed', p.scope === 'favorites' ? 'true' : 'false');
     nearest.setAttribute('aria-pressed', p.sortBy === 'distance' ? 'true' : 'false');
     cheapest.setAttribute('aria-pressed', p.sortBy === 'price' ? 'true' : 'false');
     nearest.disabled = !p.canSortByDistance;
@@ -117,12 +139,19 @@ export function createStationList(handlers: {
       );
     } else if (p.items.length === 0) {
       const q = p.query.trim();
-      content.replaceChildren(
-        h('p', { class: 'list-state' }, q !== '' ? S.noStationsMatch(q) : S.noStationsForFuel(p.fuel.label)),
-      );
+      const fav = p.scope === 'favorites';
+      const msg =
+        fav && p.favoriteCount === 0
+          ? S.noFavorites
+          : q !== ''
+            ? S.noStationsMatch(q)
+            : fav
+              ? S.noFavoritesForFuel(p.fuel.label)
+              : S.noStationsForFuel(p.fuel.label);
+      content.replaceChildren(h('p', { class: 'list-state' }, msg));
     } else {
       const ul = h('ul', { class: 'station-list' });
-      for (const item of p.items) ul.appendChild(h('li', {}, row(item)));
+      for (const item of p.items) ul.appendChild(row(item));
       content.replaceChildren(ul);
     }
   }

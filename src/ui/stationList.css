@@ -28,6 +28,22 @@
 }
 .station-list { list-style: none; margin: 0; padding: 0; }
 .station-list li { border-top: 1px solid var(--c-border); }
+.station-item { position: relative; }
+.station-item .station-row { padding-right: 60px; }
+.segmented--scope { margin-bottom: var(--space-2); }
+.fav-btn {
+  position: absolute;
+  top: 0;
+  right: 0;
+  min-width: 44px;
+  min-height: 44px;
+  border: 0;
+  background: transparent;
+  color: var(--c-accent);
+  font-size: 1.4rem;
+  line-height: 1;
+  cursor: pointer;
+}
 .station-row {
   display: flex;
   align-items: center;
