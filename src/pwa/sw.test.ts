@@ -206,6 +206,18 @@ describe('public/sw.js', () => {
     expect(event.respondWith).not.toHaveBeenCalled();
   });
 
+  it('does not intercept a GET to a CARTO Voyager tile', () => {
+    const event = fetchEvent({
+      url: 'https://a.basemaps.cartocdn.com/rastertiles/voyager/1/1/1.png',
+      method: 'GET',
+      mode: 'no-cors',
+    });
+
+    fire('fetch', event);
+
+    expect(event.respondWith).not.toHaveBeenCalled();
+  });
+
   it('does not intercept a same-origin POST', () => {
     const event = fetchEvent({ url: 'https://app.test/submit', method: 'POST', mode: 'cors' });
 

@@ -875,8 +875,19 @@ describe('Addendum B: map container and panel-aware inset', () => {
     heightSpy = null;
   });
 
-  type MapOpts = { bottomInset?: () => number };
+  type MapOpts = { bottomInset?: () => number; storage?: unknown };
   const optsOf = (h: Harness) => h.createMapView.mock.calls[0]![1] as MapOpts | undefined;
+
+  it('B2. createMapView receives the injected storage object as opts.storage (identity)', () => {
+    const h = setup();
+    expect(optsOf(h)!.storage).toBe(h.storage);
+    expect(optsOf(h)!.storage).not.toBeNull();
+  });
+
+  it('B2. createMapView receives null as opts.storage when deps.storage is null', () => {
+    const h = setup({ storage: null });
+    expect(optsOf(h)!.storage).toBeNull();
+  });
 
   it('B1. createMapView receives the map container already connected as a child of root', () => {
     const h = setup();
