@@ -37,7 +37,7 @@
   outline: 3px solid var(--c-accent);
   outline-offset: 1px;
 }
-.price-pin--cheapest::before { content: "★ "; }
+.price-pin--cheapest::before { content: "\1FA99  "; }
 
 @media (max-width: 767px) {
   .leaflet-bottom { bottom: var(--sheet-peek); }
