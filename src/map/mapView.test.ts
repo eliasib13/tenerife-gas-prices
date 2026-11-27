@@ -3,6 +3,7 @@ import L from 'leaflet';
 import { createMapView } from './mapView';
 import type { MapView } from './mapView';
 import type { MarkerViewModel } from '../types';
+import { OSM_ATTRIBUTION } from './tileStyles';
 
 function vm(id: string, over: Partial<MarkerViewModel> = {}): MarkerViewModel {
   return { id, lat: 28.1 + Number(id) * 0.01, lon: -16.7, label: '1,5' + id, tier: 'mid', selected: false, cheapest: false, ...over };
@@ -28,16 +29,18 @@ afterEach(() => {
   div.remove();
 });
 
-function make(opts?: { animate?: boolean }): MapView {
-  view = createMapView(div, { animate: false, ...opts });
+function make(opts?: { animate?: boolean; cartoKey?: string | null }): MapView {
+  view = createMapView(div, { animate: false, cartoKey: 'k', ...opts });
   return view;
 }
 
 describe('createMapView', () => {
-  it('creates a leaflet container with OpenStreetMap attribution', () => {
+  it('creates a leaflet container with OpenStreetMap and CARTO attribution', () => {
     make();
     expect(div.classList.contains('leaflet-container')).toBe(true);
-    expect(div.querySelector('.leaflet-control-attribution')?.textContent).toContain('OpenStreetMap');
+    const text = div.querySelector('.leaflet-control-attribution')?.textContent;
+    expect(text).toContain('OpenStreetMap');
+    expect(text).toContain('CARTO');
   });
 
   it('setStations renders one pin per marker and replaces old ones', () => {
@@ -103,7 +106,7 @@ describe('createMapView', () => {
     const proj = (lat: number, lon: number, z: number) => L.CRS.EPSG3857.latLngToPoint(L.latLng(lat, lon), z);
 
     function makeInset(bottomInset?: () => number): MapView {
-      view = createMapView(div, { animate: false, bottomInset });
+      view = createMapView(div, { animate: false, bottomInset, cartoKey: 'k' });
       return view;
     }
 
@@ -168,17 +171,18 @@ describe('createMapView', () => {
   });
 
   describe('mutation coverage', () => {
-    it('uses the OpenStreetMap tile URL by default and a custom one when given', () => {
+    it('uses the Voyager tile URL by default and a custom one when given', () => {
       const spy = vi.spyOn(L, 'tileLayer');
-      view = createMapView(div);
-      expect(spy).toHaveBeenCalledTimes(1);
-      expect(spy.mock.calls[0]![0]).toBe('https://tile.openstreetmap.org/{z}/{x}/{y}.png');
+      view = createMapView(div, { cartoKey: 'k' });
+      expect(spy.mock.calls[0]![0]).toBe('https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png?key=k');
       view.destroy();
       view = null;
+      spy.mockClear();
       const div2 = document.createElement('div');
       document.body.appendChild(div2);
       const v2 = createMapView(div2, { tileUrl: 'https://example.test/{z}/{x}/{y}.png' });
-      expect(spy.mock.calls[1]![0]).toBe('https://example.test/{z}/{x}/{y}.png');
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(spy.mock.calls[0]![0]).toBe('https://example.test/{z}/{x}/{y}.png');
       v2.destroy();
       div2.remove();
     });
@@ -186,7 +190,7 @@ describe('createMapView', () => {
     it('animate defaults to true and is passed to fitBounds and setView', () => {
       const fit = vi.spyOn(L.Map.prototype, 'fitBounds').mockImplementation(function (this: L.Map) { return this; });
       const sv = vi.spyOn(L.Map.prototype, 'setView').mockImplementation(function (this: L.Map) { return this; });
-      view = createMapView(div);
+      view = createMapView(div, { cartoKey: 'k' });
       expect(fit.mock.calls[0]![1]).toEqual({ paddingTopLeft: [16, 16], paddingBottomRight: [16, 16], animate: true });
       view.focus({ lat: 28.3, lon: -16.5 });
       expect(sv.mock.calls[0]![0]).toEqual([28.3, -16.5]);
@@ -273,6 +277,154 @@ describe('createMapView', () => {
       const front = vi.spyOn(dot, 'bringToFront');
       v.setUserPosition({ lat: 28.4, lon: -16.3 }, 100);
       expect(front).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('tile style switcher', () => {
+    const KEY = 'tgp:map-style:v1';
+
+    function memStorage(initial: Record<string, string> = {}) {
+      const data = new Map<string, string>(Object.entries(initial));
+      return {
+        getItem: vi.fn((k: string) => (data.has(k) ? data.get(k)! : null)),
+        setItem: vi.fn((k: string, v: string) => { data.set(k, v); }),
+        removeItem: vi.fn((k: string) => { data.delete(k); }),
+        data,
+      };
+    }
+
+    function radios(): HTMLInputElement[] {
+      return Array.from(div.querySelectorAll<HTMLInputElement>('.leaflet-control-layers input[type="radio"]'));
+    }
+    function click(i: number): void {
+      radios()[i]!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    }
+    function attribution(): string {
+      return div.querySelector('.leaflet-control-attribution')?.textContent ?? '';
+    }
+
+    it('creates three tile layers by default and adds only the Voyager one to the map', () => {
+      const spy = vi.spyOn(L, 'tileLayer');
+      make();
+      expect(spy).toHaveBeenCalledTimes(3);
+      const urls = spy.mock.calls.map((c) => c[0]);
+      expect(urls).toEqual([
+        'https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png?key=k',
+        'https://basemaps.cartocdn.com/rastertiles/light_all/{z}/{x}/{y}.png?key=k',
+        'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+      ]);
+      const layers = spy.mock.results.map((r) => r.value as L.TileLayer);
+      // hasLayer needs the map; use the container's tile pane instead
+      expect(div.querySelectorAll('.leaflet-tile-pane .leaflet-layer').length).toBe(1);
+      expect(layers.length).toBe(3);
+    });
+
+    it('renders a layers control with three radios, Voyager checked, and a labelled toggle', () => {
+      make();
+      expect(div.querySelector('.leaflet-control-layers')).not.toBeNull();
+      const r = radios();
+      expect(r.length).toBe(3);
+      expect(r.map((x) => x.checked)).toEqual([true, false, false]);
+      const toggle = div.querySelector('.leaflet-control-layers-toggle')!;
+      expect(toggle.getAttribute('aria-label')).toBe('Estilo del mapa');
+      expect(toggle.getAttribute('title')).toBe('Estilo del mapa');
+    });
+
+    it('selecting Positron keeps CARTO attribution; selecting OSM shows OpenStreetMap without CARTO', () => {
+      make();
+      click(1);
+      expect(radios().map((x) => x.checked)).toEqual([false, true, false]);
+      expect(attribution()).toContain('CARTO');
+      click(2);
+      expect(radios().map((x) => x.checked)).toEqual([false, false, true]);
+      expect(attribution()).toContain('OpenStreetMap');
+      expect(attribution()).not.toContain('CARTO');
+    });
+
+    it('persists the chosen style and restores it in a new view', () => {
+      const storage = memStorage();
+      view = createMapView(div, { animate: false, storage, cartoKey: 'k' });
+      click(2);
+      expect(storage.setItem).toHaveBeenCalledWith(KEY, 'osm');
+      expect(storage.data.get(KEY)).toBe('osm');
+      view.destroy();
+      view = null;
+      div.remove();
+      div = document.createElement('div');
+      document.body.appendChild(div);
+      view = createMapView(div, { animate: false, storage, cartoKey: 'k' });
+      expect(radios().map((x) => x.checked)).toEqual([false, false, true]);
+      expect(attribution()).not.toContain('CARTO');
+    });
+
+    it('falls back to Voyager when storage holds an invalid id', () => {
+      view = createMapView(div, { animate: false, cartoKey: 'k', storage: memStorage({ [KEY]: 'bogus' }) });
+      expect(radios().map((x) => x.checked)).toEqual([true, false, false]);
+    });
+
+    it.each([['null', null], ['omitted', undefined]])('switching with %s storage does not throw', (_n, storage) => {
+      view = createMapView(div, { animate: false, storage, cartoKey: 'k' });
+      expect(() => { click(1); click(2); }).not.toThrow();
+      expect(radios().map((x) => x.checked)).toEqual([false, false, true]);
+    });
+
+    it('custom tileUrl: one tile layer, no control, no storage access, OSM attribution', () => {
+      const storage = memStorage();
+      const spy = vi.spyOn(L, 'tileLayer');
+      view = createMapView(div, { animate: false, tileUrl: 'https://example.test/{z}/{x}/{y}.png', storage, cartoKey: 'k' });
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(spy.mock.calls[0]![0]).toBe('https://example.test/{z}/{x}/{y}.png');
+      expect(div.querySelector('.leaflet-control-layers')).toBeNull();
+      expect(storage.getItem).not.toHaveBeenCalled();
+      expect(storage.setItem).not.toHaveBeenCalled();
+      expect(attribution()).toContain('OpenStreetMap');
+    });
+
+    it('custom tileUrl layer attribution equals the exported OSM_ATTRIBUTION', () => {
+      const spy = vi.spyOn(L, 'tileLayer');
+      view = createMapView(div, { animate: false, tileUrl: 'https://example.test/{z}/{x}/{y}.png', cartoKey: 'k' });
+      const opts = spy.mock.calls[0]![1] as L.TileLayerOptions;
+      expect(opts.attribution).toBe(OSM_ATTRIBUTION);
+    });
+
+    it.each([['omitted', undefined], ['empty string', ''], ['null', null]])(
+      'without a key (%s): one OSM layer, no control, OSM-only attribution, no CARTO requests',
+      (_n, cartoKey) => {
+        const spy = vi.spyOn(L, 'tileLayer');
+        view = createMapView(div, { animate: false, ...(cartoKey === undefined ? {} : { cartoKey }) });
+        expect(spy).toHaveBeenCalledTimes(1);
+        expect(spy.mock.calls[0]![0]).toBe('https://tile.openstreetmap.org/{z}/{x}/{y}.png');
+        expect(spy.mock.calls.some((c) => String(c[0]).includes('cartocdn'))).toBe(false);
+        expect(div.querySelector('.leaflet-control-layers')).toBeNull();
+        expect(attribution()).toContain('OpenStreetMap');
+        expect(attribution()).not.toContain('CARTO');
+      },
+    );
+
+    it('without a key and stored voyager: uses OSM and never writes storage', () => {
+      const storage = memStorage({ [KEY]: 'voyager' });
+      const spy = vi.spyOn(L, 'tileLayer');
+      view = createMapView(div, { animate: false, storage });
+      expect(spy.mock.calls.map((c) => c[0])).toEqual(['https://tile.openstreetmap.org/{z}/{x}/{y}.png']);
+      expect(storage.setItem).not.toHaveBeenCalled();
+      expect(attribution()).not.toContain('CARTO');
+    });
+
+    it('with a key and stored osm: OSM radio is checked', () => {
+      view = createMapView(div, { animate: false, cartoKey: 'k', storage: memStorage({ [KEY]: 'osm' }) });
+      expect(radios().map((x) => x.checked)).toEqual([false, false, true]);
+    });
+
+    it('with a key and stored positron: Positron radio is checked', () => {
+      view = createMapView(div, { animate: false, cartoKey: 'k', storage: memStorage({ [KEY]: 'positron' }) });
+      expect(radios().map((x) => x.checked)).toEqual([false, true, false]);
+    });
+
+    it('places the collapsed layers control in the bottom-right corner', () => {
+      make();
+      const control = div.querySelector('.leaflet-bottom.leaflet-right .leaflet-control-layers');
+      expect(control).not.toBeNull();
+      expect(control!.classList.contains('leaflet-control-layers-expanded')).toBe(false);
     });
   });
 });
