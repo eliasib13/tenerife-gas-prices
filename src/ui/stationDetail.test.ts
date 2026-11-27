@@ -7,7 +7,8 @@ import { appleMapsUrl, googleMapsUrl } from '../domain/navigation';
 
 function mount(over: Partial<StationDetailProps> = {}) {
   const onBack = vi.fn();
-  const c = createStationDetail({ onBack });
+  const onToggleFavorite = vi.fn();
+  const c = createStationDetail({ onBack, onToggleFavorite });
   const props: StationDetailProps = {
     station: makeStation({
       brand: 'REPSOL',
@@ -21,11 +22,12 @@ function mount(over: Partial<StationDetailProps> = {}) {
     distanceKm: null,
     openState: 'open',
     platform: 'other',
+    isFavorite: false,
     ...over,
   };
   c.update(props);
   document.body.appendChild(c.el);
-  return { c, onBack, props };
+  return { c, onBack, onToggleFavorite, props };
 }
 
 describe('createStationDetail', () => {
@@ -185,7 +187,66 @@ describe('createStationDetail', () => {
     const { c } = mount({ distanceKm: null });
     const kids = Array.from(c.el.childNodes).filter((n) => !(n.nodeType === 3 && n.textContent === ''));
     expect(kids.every((n) => n.nodeType === 1)).toBe(true);
-    expect(kids.map((n) => (n as Element).tagName.toLowerCase())).toEqual(['button', 'h2', 'address', 'p', 'table', 'div']);
+    expect(kids.map((n) => (n as Element).tagName.toLowerCase())).toEqual(['div', 'h2', 'address', 'p', 'table', 'div']);
     expect(c.el.querySelector('.detail-distance')).toBeNull();
+  });
+
+  describe('favorite star', () => {
+    it('renders a fav-btn--detail inside div.detail-top next to the back button', () => {
+      const { c } = mount();
+      const top = c.el.querySelector('div.detail-top');
+      expect(top).not.toBeNull();
+      const back = top?.querySelector('button.back-btn');
+      const fav = top?.querySelector('button.fav-btn.fav-btn--detail');
+      expect(back).not.toBeNull();
+      expect(fav).not.toBeNull();
+      expect(fav?.parentElement).toBe(top);
+      expect(back?.parentElement).toBe(top);
+      expect(c.el.firstElementChild).toBe(top);
+    });
+
+    it('non-favorite station: star text, aria-pressed false and add label', () => {
+      const { c } = mount({ isFavorite: false });
+      const fav = c.el.querySelector('button.fav-btn--detail') as HTMLButtonElement;
+      expect(fav.textContent).toBe('☆');
+      expect(fav.getAttribute('aria-pressed')).toBe('false');
+      expect(fav.getAttribute('aria-label')).toBe(S.favoriteAdd);
+      expect(fav.getAttribute('type')).toBe('button');
+    });
+
+    it('favorite station: filled star, aria-pressed true and remove label', () => {
+      const { c } = mount({ isFavorite: true });
+      const fav = c.el.querySelector('button.fav-btn--detail') as HTMLButtonElement;
+      expect(fav.textContent).toBe('★');
+      expect(fav.getAttribute('aria-pressed')).toBe('true');
+      expect(fav.getAttribute('aria-label')).toBe(S.favoriteRemove);
+    });
+
+    it('click calls onToggleFavorite with the station id once and not onBack', () => {
+      const station = makeStation({ id: 'st-42' });
+      const { c, onBack, onToggleFavorite } = mount({ station });
+      const fav = c.el.querySelector('button.fav-btn--detail') as HTMLButtonElement;
+      fav.click();
+      expect(onToggleFavorite).toHaveBeenCalledTimes(1);
+      expect(onToggleFavorite).toHaveBeenCalledWith('st-42');
+      expect(onBack).not.toHaveBeenCalled();
+    });
+
+    it('update with isFavorite true then false flips text and aria state', () => {
+      const { c, props } = mount({ isFavorite: false });
+      const fav = (): HTMLButtonElement => c.el.querySelector('button.fav-btn--detail') as HTMLButtonElement;
+      expect(fav().textContent).toBe('☆');
+      expect(fav().getAttribute('aria-pressed')).toBe('false');
+
+      c.update({ ...props, isFavorite: true });
+      expect(fav().textContent).toBe('★');
+      expect(fav().getAttribute('aria-pressed')).toBe('true');
+      expect(fav().getAttribute('aria-label')).toBe(S.favoriteRemove);
+
+      c.update({ ...props, isFavorite: false });
+      expect(fav().textContent).toBe('☆');
+      expect(fav().getAttribute('aria-pressed')).toBe('false');
+      expect(fav().getAttribute('aria-label')).toBe(S.favoriteAdd);
+    });
   });
 });
