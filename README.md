@@ -9,6 +9,7 @@ A mobile-first web app that shows current fuel prices at petrol stations in Tene
 ## Features
 
 - **Price map:** every station selling the chosen fuel, with price pins coloured by price tier and the cheapest highlighted.
+- **Map styles:** switch between OpenStreetMap, CARTO Voyager and CARTO Positron (the CARTO styles need `VITE_CARTO_KEY`).
 - **Sortable list:** nearest first or cheapest first. Without a location, the list is sorted by price.
 - **Search:** filter by brand, street, locality, municipality or postal code, ignoring accents and case.
 - **Nine fuels:** Gasolina 95, 95 Premium and 98, Gasóleo A and Premium, renewable diesel, GLP, GNC and AdBlue.
@@ -24,7 +25,7 @@ npm ci
 npm run dev
 ```
 
-No API keys or environment variables are needed.
+The optional `VITE_CARTO_KEY` variable enables the CARTO Voyager and Positron map styles. Put it in `.env.local` (see `.env.example`) for local builds, or in the `VITE_CARTO_KEY` Actions secret for deploys. Without it, only OpenStreetMap is offered. The key is embedded in the public bundle, so restrict it by domain in the CARTO dashboard.
 
 | Command | Description |
 | --- | --- |
