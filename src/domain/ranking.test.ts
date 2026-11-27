@@ -12,6 +12,7 @@ function item(id: string, price: number, distanceKm: number | null, brand = 'TES
     tier: 'mid',
     isCheapest: false,
     openState: 'unknown',
+    favorite: false,
   };
 }
 
