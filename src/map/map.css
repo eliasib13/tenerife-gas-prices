@@ -45,3 +45,5 @@
 @media (min-width: 768px) {
   .map.leaflet-container { width: auto; height: auto; }
 }
+
+.leaflet-control-layers-list label { padding: 6px 4px; font: 14px var(--font); }

@@ -11,6 +11,7 @@ const ERROR_TEXTS: Record<FetchErrorKind, string> = {
 export const S = {
   appName: 'Gasolineras Tenerife',
   locate: 'Mi ubicación',
+  mapStyle: 'Estilo del mapa',
   refresh: 'Actualizar precios',
   retry: 'Reintentar',
   loading: 'Cargando precios en directo…',
