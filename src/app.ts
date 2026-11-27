@@ -23,7 +23,7 @@ export interface AppDeps {
   root: HTMLElement;
   fetchStations: () => Promise<StationsResult>;
   geolocation: Geolocation | undefined;
-  createMapView: (el: HTMLElement, opts?: { bottomInset?: () => number }) => MapView;
+  createMapView: (el: HTMLElement, opts?: { bottomInset?: () => number; storage?: StorageLike | null }) => MapView;
   storage: StorageLike | null;
   now: () => Date;
   isOnline: () => boolean;
@@ -93,7 +93,10 @@ export function createApp(deps: AppDeps): App {
   let mounted: 'list' | 'detail' | null = null;
 
   deps.root.append(mapEl, topBar, controls.el, sheet.el);
-  const map = deps.createMapView(mapEl, { bottomInset: () => sheet.coveredHeight(store.getState().sheet) });
+  const map = deps.createMapView(mapEl, {
+    bottomInset: () => sheet.coveredHeight(store.getState().sheet),
+    storage,
+  });
 
   function persistPrefs(): void {
     const s = store.getState();
