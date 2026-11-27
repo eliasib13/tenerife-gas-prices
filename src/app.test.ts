@@ -1088,3 +1088,103 @@ describe('search box wiring', () => {
     expect(lastMarkers(h)).toEqual([]);
   });
 });
+
+describe('createApp persisted preferences', () => {
+  const prefsOf = (h: Harness) => {
+    const s = h.app.store.getState();
+    return { fuel: s.fuel, sortBy: s.sortBy };
+  };
+  const withPrefs = (raw: string) => (st: ReturnType<typeof memoryStorage>) => st.setItem(PREFS_KEY, raw);
+
+  it('P1. fuel and sort survive an app restart on the same storage', async () => {
+    const first = setup();
+    await flush();
+    first.geo.success(28.1, -16.7);
+    btn(first, 'Diésel').click();
+    btn(first, S.sortCheapest).click();
+    first.app.destroy();
+    first.root.remove();
+
+    const second = setup({ storage: first.storage });
+    expect(prefsOf(second)).toEqual({ fuel: 'diesel', sortBy: 'price' });
+    second.app.destroy();
+    second.root.remove();
+
+    const third = setup({ storage: first.storage });
+    await flush();
+    third.geo.success(28.1, -16.7);
+    btn(third, S.sortNearest).click();
+    third.app.destroy();
+    third.root.remove();
+
+    const fourth = setup({ storage: first.storage });
+    expect(prefsOf(fourth)).toEqual({ fuel: 'diesel', sortBy: 'distance' });
+  });
+
+  it('P2. invalid stored values fall back to the defaults', () => {
+    const fresh = setup();
+    const defaults = prefsOf(fresh);
+    fresh.app.destroy();
+    fresh.root.remove();
+    const h = setup({ prepare: withPrefs(JSON.stringify({ fuel: 'kerosene', sortBy: 'sideways' })) });
+    expect(prefsOf(h)).toEqual(defaults);
+  });
+
+  it('P3. a partially stale record keeps the valid field only', () => {
+    const fresh = setup();
+    const defaults = prefsOf(fresh);
+    fresh.app.destroy();
+    fresh.root.remove();
+    const h = setup({ prepare: withPrefs(JSON.stringify({ fuel: 'diesel', sortBy: 42 })) });
+    expect(prefsOf(h)).toEqual({ fuel: 'diesel', sortBy: defaults.sortBy });
+  });
+
+  it.each(['{oops', 'null', '[]', '"x"'])('P4. stored %s yields defaults and the app becomes ready', async (raw) => {
+    const fresh = setup();
+    const defaults = prefsOf(fresh);
+    fresh.app.destroy();
+    fresh.root.remove();
+    const h = setup({ prepare: withPrefs(raw) });
+    expect(prefsOf(h)).toEqual(defaults);
+    await flush();
+    expect(h.app.store.getState().status).toBe('ready');
+  });
+
+  it('P5. a throwing getItem starts with defaults and reaches ready', async () => {
+    const fresh = setup();
+    const defaults = prefsOf(fresh);
+    fresh.app.destroy();
+    fresh.root.remove();
+    const storage = memoryStorage();
+    storage.getItem = () => {
+      throw new DOMException('denied', 'SecurityError');
+    };
+    const h = setup({ storage });
+    expect(prefsOf(h)).toEqual(defaults);
+    await flush();
+    expect(h.app.store.getState().status).toBe('ready');
+  });
+
+  it('P6. stored distance sort without a position does not crash and lists by price', async () => {
+    const h = setup({ prepare: withPrefs(JSON.stringify({ fuel: 'g95', sortBy: 'distance' })) });
+    await flush();
+    expect(h.app.store.getState().status).toBe('ready');
+    expect(h.app.store.getState().geo.position).toBeNull();
+    expect(btn(h, S.sortNearest).disabled).toBe(true);
+    expect(rows(h)).toHaveLength(2);
+    expect(rows(h)[0]!.textContent).toContain('BETA');
+    expect(rows(h)[1]!.textContent).toContain('ALFA');
+  });
+
+  it('P7. null storage: clicking fuel and sort tab does not throw', async () => {
+    const h = setup({ storage: null });
+    await flush();
+    h.geo.success(28.1, -16.7);
+    expect(() => {
+      btn(h, 'Diésel').click();
+      btn(h, S.sortCheapest).click();
+      btn(h, S.sortNearest).click();
+    }).not.toThrow();
+    expect(prefsOf(h)).toEqual({ fuel: 'diesel', sortBy: 'distance' });
+  });
+});
