@@ -36,7 +36,11 @@ export function listItems(s: AppState): StationListItem[] {
   const tierOf = makeTierFn(prices);
   const min = prices.length ? Math.min(...prices) : 0;
   const pos = s.geo.position;
-  const matching = priced.filter(({ station }) => matchesQuery(station, s.query));
+  const favs = new Set(s.favorites);
+  const matching = priced.filter(
+    ({ station }) =>
+      (s.scope !== 'favorites' || favs.has(station.id)) && matchesQuery(station, s.query),
+  );
   const items: StationListItem[] = matching.map(({ station, price }) => ({
     station,
     price,
@@ -44,6 +48,7 @@ export function listItems(s: AppState): StationListItem[] {
     tier: tierOf(price),
     isCheapest: price === min,
     openState: openStatus(station.hours, s.now),
+    favorite: favs.has(station.id),
   }));
   return sortItems(items, effectiveSort(s));
 }
