@@ -147,6 +147,7 @@ describe('markerModels', () => {
     tier,
     isCheapest,
     openState: 'open',
+    favorite: false,
   });
 
   it('maps id, lat, lon, label, tier, cheapest and selected', () => {
@@ -299,5 +300,140 @@ describe('selectedStation with a search query', () => {
     const stations = [makeStation({ id: 'a', brand: 'SHELL' }), makeStation({ id: 'b', brand: 'CEPSA' })];
     const s = stateWith({ stations, selectedId: 'a', query: 'cepsa' });
     expect(selectedStation(s)).toBe(stations[0]);
+  });
+});
+
+describe('listItems favorites scope', () => {
+  const pos = { lat: 28.1, lon: -16.7 };
+  const geo = { status: 'ok' as const, position: pos, accuracyM: 5 };
+  const abc = () => [
+    makeStation({ id: 'A', lat: 28.4, lon: -16.5, prices: { g95: 1.3 } }),
+    makeStation({ id: 'B', lat: 28.2, lon: -16.6, prices: { g95: 1.5 } }),
+    makeStation({ id: 'C', lat: 28.11, lon: -16.7, prices: { g95: 1.9 } }),
+  ];
+
+  it("scope 'all' ignores favorites and flags favorite only for ids in state.favorites", () => {
+    const items = listItems(
+      stateWith({ stations: abc(), fuel: 'g95', scope: 'all', favorites: ['B', 'ghost'] }),
+    );
+    expect(items.map((i) => i.station.id)).toEqual(['A', 'B', 'C']);
+    expect(items.map((i) => [i.station.id, i.favorite])).toEqual([
+      ['A', false],
+      ['B', true],
+      ['C', false],
+    ]);
+  });
+
+  it("scope 'favorites' returns only favorited stations, all flagged favorite", () => {
+    const items = listItems(
+      stateWith({ stations: abc(), fuel: 'g95', scope: 'favorites', favorites: ['B', 'C'] }),
+    );
+    expect(items.map((i) => i.station.id)).toEqual(['B', 'C']);
+    expect(items.every((i) => i.favorite === true)).toBe(true);
+  });
+
+  it("scope 'favorites' with empty favorites returns []", () => {
+    expect(
+      listItems(stateWith({ stations: abc(), fuel: 'g95', scope: 'favorites', favorites: [] })),
+    ).toEqual([]);
+  });
+
+  it('tiers and isCheapest do not change with scope', () => {
+    const base = { stations: abc(), fuel: 'g95' as const, favorites: ['B', 'C'] };
+    const all = listItems(stateWith({ ...base, scope: 'all' }));
+    const favs = listItems(stateWith({ ...base, scope: 'favorites' }));
+    const tierAll = all.find((i) => i.station.id === 'B')!.tier;
+    expect(favs.find((i) => i.station.id === 'B')!.tier).toBe(tierAll);
+    expect(favs.find((i) => i.station.id === 'C')!.tier).toBe(
+      all.find((i) => i.station.id === 'C')!.tier,
+    );
+    expect(favs.map((i) => i.station.id)).toEqual(['B', 'C']);
+    expect(favs.every((i) => i.isCheapest === false)).toBe(true);
+  });
+
+  it('sorts by distance in favorites scope when a position is known', () => {
+    const items = listItems(
+      stateWith({
+        stations: abc(),
+        fuel: 'g95',
+        scope: 'favorites',
+        favorites: ['A', 'B', 'C'],
+        sortBy: 'distance',
+        geo,
+      }),
+    );
+    expect(items.map((i) => i.station.id)).toEqual(['C', 'B', 'A']);
+    expect(items.every((i) => i.distanceKm !== null)).toBe(true);
+  });
+
+  it('sorts by price in favorites scope', () => {
+    const items = listItems(
+      stateWith({
+        stations: abc(),
+        fuel: 'g95',
+        scope: 'favorites',
+        favorites: ['A', 'B', 'C'],
+        sortBy: 'price',
+        geo,
+      }),
+    );
+    expect(items.map((i) => i.station.id)).toEqual(['A', 'B', 'C']);
+  });
+
+  it('falls back to price sort without a position in favorites scope', () => {
+    const items = listItems(
+      stateWith({
+        stations: abc(),
+        fuel: 'g95',
+        scope: 'favorites',
+        favorites: ['C', 'B'],
+        sortBy: 'distance',
+      }),
+    );
+    expect(items.map((i) => i.station.id)).toEqual(['B', 'C']);
+    expect(items.every((i) => i.distanceKm === null)).toBe(true);
+  });
+
+  it('excludes a favorite without a price for the selected fuel', () => {
+    const stations = [
+      makeStation({ id: 'A', prices: { g95: 1.4 } }),
+      makeStation({ id: 'D', prices: { diesel: 1.2 } }),
+    ];
+    const items = listItems(
+      stateWith({ stations, fuel: 'g95', scope: 'favorites', favorites: ['A', 'D'] }),
+    );
+    expect(items.map((i) => i.station.id)).toEqual(['A']);
+  });
+
+  it('query filters within favorites scope (AND)', () => {
+    const stations = [
+      makeStation({ id: 'a', brand: 'CEPSA', prices: { g95: 1.4 } }),
+      makeStation({ id: 'b', brand: 'SHELL', prices: { g95: 1.5 } }),
+      makeStation({ id: 'c', brand: 'CEPSA', prices: { g95: 1.6 } }),
+    ];
+    const items = listItems(
+      stateWith({
+        stations,
+        fuel: 'g95',
+        scope: 'favorites',
+        favorites: ['b', 'c'],
+        query: 'cepsa',
+      }),
+    );
+    expect(items.map((i) => i.station.id)).toEqual(['c']);
+  });
+
+  it('ignores unknown ids in favorites', () => {
+    const items = listItems(
+      stateWith({ stations: abc(), fuel: 'g95', scope: 'favorites', favorites: ['zzz', 'B'] }),
+    );
+    expect(items.map((i) => i.station.id)).toEqual(['B']);
+  });
+
+  it('markerModels of favorites-scope items yields only favorite pins', () => {
+    const items = listItems(
+      stateWith({ stations: abc(), fuel: 'g95', scope: 'favorites', favorites: ['B'] }),
+    );
+    expect(markerModels(items, null).map((m) => m.id)).toEqual(['B']);
   });
 });
