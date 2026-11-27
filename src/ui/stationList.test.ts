@@ -17,6 +17,7 @@ function item(over: Partial<StationListItem> & { station?: ReturnType<typeof mak
     tier: 'cheap',
     isCheapest: true,
     openState: 'open',
+    favorite: false,
     ...over,
   };
 }
@@ -42,7 +43,8 @@ afterEach(() => {
 });
 
 function mount(over: Partial<StationListProps> = {}) {
-  const h = { onSelect: vi.fn(), onSort: vi.fn(), onRetry: vi.fn(), onSearch: vi.fn(), onSearchFocus: vi.fn() };
+  const h = { onSelect: vi.fn(), onSort: vi.fn(), onRetry: vi.fn(), onSearch: vi.fn(), onSearchFocus: vi.fn(),
+    onScope: vi.fn(), onToggleFavorite: vi.fn() };
   const c = createStationList(h);
   const props: StationListProps = {
     status: 'ready',
@@ -53,6 +55,8 @@ function mount(over: Partial<StationListProps> = {}) {
     canSortByDistance: true,
     geoStatus: 'ok',
     query: '',
+    scope: 'all',
+    favoriteCount: 0,
     ...over,
   };
   c.update(props);
@@ -198,7 +202,7 @@ describe('createStationList structure (mutation)', () => {
     const header = c.el.querySelector('.list-header')!;
     expect(header).not.toBeNull();
     expect(header.querySelector('h2.list-title')).not.toBeNull();
-    const seg = header.querySelector('.segmented')!;
+    const seg = header.querySelectorAll('.segmented')[1]!;
     expect(seg.getAttribute('role')).toBe('group');
     const segs = Array.from(seg.querySelectorAll('button.seg'));
     expect(segs.map((b) => b.textContent)).toEqual([S.sortNearest, S.sortCheapest]);
@@ -402,6 +406,8 @@ describe('createStationList search', () => {
       onRetry: vi.fn(),
       onSearch: vi.fn(),
       onSearchFocus: vi.fn(),
+      onScope: vi.fn(),
+      onToggleFavorite: vi.fn(),
     });
     const clear = c.el.querySelector<HTMLButtonElement>('button.list-search__clear')!;
     expect(clear.hidden).toBe(true);
@@ -470,5 +476,140 @@ describe('createStationList search', () => {
     const e = mount({ status: 'error', lastError: 'network', items: [], query: 'foo' });
     expect(searchInput(e.c.el)).not.toBeNull();
     expect(e.c.el.querySelector('.list-state')).not.toBeNull();
+  });
+});
+
+describe('createStationList favorites', () => {
+  function scopeGroup(el: HTMLElement): HTMLElement {
+    const g = el.querySelector<HTMLElement>('.segmented--scope');
+    if (!g) throw new Error('scope group not found');
+    return g;
+  }
+
+  it('renders the scope group before the sort group with both buttons', () => {
+    const { c } = mount();
+    const header = c.el.querySelector('.list-header')!;
+    const groups = Array.from(header.querySelectorAll('.segmented'));
+    expect(groups).toHaveLength(2);
+    expect(groups[0]).toBe(scopeGroup(c.el));
+    expect(groups[0]!.getAttribute('role')).toBe('group');
+    expect(groups[0]!.getAttribute('aria-label')).toBe(S.scopeLabel);
+    const segs = Array.from(groups[0]!.querySelectorAll('button.seg'));
+    expect(segs.map((b) => b.textContent)).toEqual([S.scopeAll, S.scopeFavorites]);
+    expect(segs.every((b) => b.getAttribute('type') === 'button')).toBe(true);
+    expect(Array.from(groups[1]!.querySelectorAll('button.seg')).map((b) => b.textContent)).toEqual([
+      S.sortNearest,
+      S.sortCheapest,
+    ]);
+  });
+
+  it('aria-pressed reflects scope across updates', () => {
+    const { c, props } = mount({ scope: 'all' });
+    const g = scopeGroup(c.el);
+    expect(btn(g, S.scopeAll).getAttribute('aria-pressed')).toBe('true');
+    expect(btn(g, S.scopeFavorites).getAttribute('aria-pressed')).toBe('false');
+    c.update({ ...props, scope: 'favorites' });
+    expect(btn(g, S.scopeAll).getAttribute('aria-pressed')).toBe('false');
+    expect(btn(g, S.scopeFavorites).getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('clicking scope buttons calls onScope', () => {
+    const { c, h } = mount();
+    const g = scopeGroup(c.el);
+    btn(g, S.scopeFavorites).click();
+    expect(h.onScope).toHaveBeenLastCalledWith('favorites');
+    btn(g, S.scopeAll).click();
+    expect(h.onScope).toHaveBeenLastCalledWith('all');
+    expect(h.onScope).toHaveBeenCalledTimes(2);
+  });
+
+  it('scope buttons stay enabled when distance sorting is unavailable', () => {
+    const { c } = mount({ canSortByDistance: false, geoStatus: 'denied' });
+    const g = scopeGroup(c.el);
+    expect(btn(g, S.scopeAll).disabled).toBe(false);
+    expect(btn(g, S.scopeFavorites).disabled).toBe(false);
+  });
+
+  it('each li has a station-row and a sibling fav-btn outside the row', () => {
+    const { c } = mount();
+    const lis = Array.from(c.el.querySelectorAll('ul.station-list > li'));
+    expect(lis).toHaveLength(2);
+    for (const li of lis) {
+      expect(li.classList.contains('station-item')).toBe(true);
+      expect(li.querySelector(':scope > button.station-row')).not.toBeNull();
+      const star = li.querySelector(':scope > button.fav-btn');
+      expect(star).not.toBeNull();
+      expect(star!.getAttribute('type')).toBe('button');
+    }
+    expect(c.el.querySelector('.station-row .fav-btn')).toBeNull();
+  });
+
+  it('star shows favorite and non-favorite states', () => {
+    const items = twoItems();
+    items[0] = { ...items[0]!, favorite: true };
+    const { c } = mount({ items });
+    const stars = Array.from(c.el.querySelectorAll<HTMLElement>('.fav-btn'));
+    expect(stars[0]!.textContent).toBe('★');
+    expect(stars[0]!.getAttribute('aria-pressed')).toBe('true');
+    expect(stars[0]!.getAttribute('aria-label')).toBe(S.favoriteRemove);
+    expect(stars[1]!.textContent).toBe('☆');
+    expect(stars[1]!.getAttribute('aria-pressed')).toBe('false');
+    expect(stars[1]!.getAttribute('aria-label')).toBe(S.favoriteAdd);
+  });
+
+  it('clicking the star calls onToggleFavorite once and not onSelect', () => {
+    const { c, h } = mount();
+    c.el.querySelectorAll<HTMLElement>('.fav-btn')[1]!.click();
+    expect(h.onToggleFavorite).toHaveBeenCalledTimes(1);
+    expect(h.onToggleFavorite).toHaveBeenCalledWith('b');
+    expect(h.onSelect).not.toHaveBeenCalled();
+  });
+
+  it('clicking the row calls onSelect only', () => {
+    const { c, h } = mount();
+    c.el.querySelectorAll<HTMLElement>('.station-row')[0]!.click();
+    expect(h.onSelect).toHaveBeenCalledTimes(1);
+    expect(h.onSelect).toHaveBeenCalledWith('a');
+    expect(h.onToggleFavorite).not.toHaveBeenCalled();
+  });
+
+  describe('empty states', () => {
+    const text = (el: HTMLElement) => el.querySelector('.list-content > p.list-state')!.textContent;
+
+    it('favorites scope with no favorites', () => {
+      const { c } = mount({ items: [], scope: 'favorites', favoriteCount: 0 });
+      expect(text(c.el)).toBe(S.noFavorites);
+    });
+
+    it('favorites scope, favorites exist, no query', () => {
+      const { c } = mount({ items: [], scope: 'favorites', favoriteCount: 2 });
+      expect(text(c.el)).toBe(S.noFavoritesForFuel('Gasolina 95'));
+    });
+
+    it('favorites scope, favorites exist, query', () => {
+      const { c } = mount({ items: [], scope: 'favorites', favoriteCount: 2, query: 'xx' });
+      expect(text(c.el)).toBe(S.noStationsMatch('xx'));
+    });
+
+    it('favorites scope, no favorites, query still shows noFavorites', () => {
+      const { c } = mount({ items: [], scope: 'favorites', favoriteCount: 0, query: 'xx' });
+      expect(text(c.el)).toBe(S.noFavorites);
+    });
+
+    it('all scope keeps the existing messages', () => {
+      const a = mount({ items: [], scope: 'all', favoriteCount: 0 });
+      expect(text(a.c.el)).toBe(S.noStationsForFuel('Gasolina 95'));
+      const b = mount({ items: [], scope: 'all', favoriteCount: 3, query: 'xx' });
+      expect(text(b.c.el)).toBe(S.noStationsMatch('xx'));
+    });
+
+    it('loading and error take precedence in favorites scope', () => {
+      const l = mount({ status: 'loading', items: [], scope: 'favorites', favoriteCount: 0 });
+      expect(l.c.el.textContent).toContain(S.loading);
+      expect(l.c.el.textContent).not.toContain(S.noFavorites);
+      const e = mount({ status: 'error', lastError: 'network', items: [], scope: 'favorites', favoriteCount: 0 });
+      expect(e.c.el.textContent).toContain(S.loadFailed);
+      expect(e.c.el.textContent).not.toContain(S.noFavorites);
+    });
   });
 });
