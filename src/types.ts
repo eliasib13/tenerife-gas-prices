@@ -23,6 +23,7 @@ export interface StationsResult { stations: Station[]; sourceDate: Date | null; 
 
 export type PriceTier = 'cheap' | 'mid' | 'expensive';
 export type SortBy = 'distance' | 'price';
+export type ListScope = 'all' | 'favorites';
 export type FetchErrorKind = 'offline' | 'timeout' | 'http' | 'network' | 'invalid';
 export type GeoStatus = 'pending' | 'ok' | 'denied' | 'unavailable' | 'unsupported';
 export type SheetSnap = 'peek' | 'half' | 'full';
@@ -41,6 +42,8 @@ export interface AppState {
   online: boolean;
   fuel: FuelId;
   sortBy: SortBy;                        // user preference; see selectors.effectiveSort
+  scope: ListScope;                      // user preference: all stations or favorites only
+  favorites: string[];                   // favorited station ids (IDEESS); persisted separately
   geo: GeoState;
   selectedId: string | null;
   sheet: SheetSnap;
@@ -55,6 +58,7 @@ export interface StationListItem {
   tier: PriceTier;
   isCheapest: boolean;        // price === min price among items
   openState: OpenState;
+  favorite: boolean;          // station id is in AppState.favorites
 }
 
 export interface MarkerViewModel {

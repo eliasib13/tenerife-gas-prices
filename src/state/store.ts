@@ -1,5 +1,5 @@
 import { DEFAULT_FUEL } from '../fuels';
-import type { AppState, FuelId, SortBy } from '../types';
+import type { AppState, FuelId, ListScope, SortBy } from '../types';
 
 export interface Store<S> {
   getState(): S;
@@ -30,9 +30,10 @@ export function createStore<S extends object>(initial: S): Store<S> {
 }
 
 export function initialState(
-  prefs: { fuel?: FuelId; sortBy?: SortBy },
+  prefs: { fuel?: FuelId; sortBy?: SortBy; scope?: ListScope },
   now: Date,
   online: boolean,
+  favorites: string[] = [],
 ): AppState {
   return {
     status: 'loading',
@@ -45,6 +46,8 @@ export function initialState(
     online,
     fuel: prefs.fuel ?? DEFAULT_FUEL,
     sortBy: prefs.sortBy ?? 'distance',
+    scope: prefs.scope ?? 'all',
+    favorites,
     geo: { status: 'pending', position: null, accuracyM: null },
     selectedId: null,
     sheet: 'peek',
