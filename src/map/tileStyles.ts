@@ -9,11 +9,15 @@ export interface TileStyle {
   attribution: string;
   subdomains?: string;
   maxZoom: number;
+  maxNativeZoom?: number;
 }
 
 export const OSM_ATTRIBUTION =
   '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
 const CARTO_ATTRIBUTION = ` &copy; <a href="https://carto.com/attributions">CARTO</a>`;
+
+/** CARTO raster basemaps serve tiles only up to z18; higher zooms upscale z18. */
+export const CARTO_MAX_NATIVE_ZOOM = 18;
 
 export const TILE_STYLE_KEY = 'tgp:map-style:v1';
 
@@ -36,6 +40,7 @@ export function getTileStyles(cartoKey?: string | null): readonly TileStyle[] {
       url: `https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png${q}`,
       attribution: OSM_ATTRIBUTION + CARTO_ATTRIBUTION,
       maxZoom: 19,
+      maxNativeZoom: CARTO_MAX_NATIVE_ZOOM,
     },
     {
       id: 'positron',
@@ -43,6 +48,7 @@ export function getTileStyles(cartoKey?: string | null): readonly TileStyle[] {
       url: `https://basemaps.cartocdn.com/rastertiles/light_all/{z}/{x}/{y}.png${q}`,
       attribution: OSM_ATTRIBUTION + CARTO_ATTRIBUTION,
       maxZoom: 19,
+      maxNativeZoom: CARTO_MAX_NATIVE_ZOOM,
     },
     osm,
   ];

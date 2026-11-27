@@ -39,6 +39,7 @@ export function createMapView(
     for (const st of styles) {
       const layerOpts: L.TileLayerOptions = { maxZoom: st.maxZoom, attribution: st.attribution };
       if (st.subdomains !== undefined) layerOpts.subdomains = st.subdomains;
+      if (st.maxNativeZoom !== undefined) layerOpts.maxNativeZoom = st.maxNativeZoom;
       const layer = L.tileLayer(st.url, layerOpts);
       byLabel[st.label] = layer;
       idByLayer.set(layer, st.id);
