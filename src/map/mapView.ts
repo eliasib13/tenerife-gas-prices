@@ -4,6 +4,9 @@ import './map.css';
 import type { LatLon, MarkerViewModel } from '../types';
 import { TENERIFE_BOUNDS } from '../data/tenerife';
 import { createMarkerElement } from './markers';
+import type { StorageLike } from '../state/preferences';
+import { S } from '../ui/strings';
+import { OSM_ATTRIBUTION, getTileStyles, loadTileStyleId, saveTileStyleId, isTileStyleId } from './tileStyles';
 
 export interface MapView {
   setStations(markers: MarkerViewModel[]): void;
@@ -17,17 +20,41 @@ export interface MapView {
   getZoom(): number;
 }
 
-const DEFAULT_TILE_URL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
-const ATTRIBUTION = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
 const USER_COLOR = '#1a73e8';
 
 export function createMapView(
   container: HTMLElement,
-  opts?: { tileUrl?: string; animate?: boolean; bottomInset?: () => number },
+  opts?: { tileUrl?: string; animate?: boolean; bottomInset?: () => number; storage?: StorageLike | null; cartoKey?: string | null },
 ): MapView {
   const animate = opts?.animate ?? true;
   const map = L.map(container, { zoomControl: false, attributionControl: true, tap: true } as L.MapOptions);
-  L.tileLayer(opts?.tileUrl ?? DEFAULT_TILE_URL, { maxZoom: 19, attribution: ATTRIBUTION }).addTo(map);
+  if (opts?.tileUrl) {
+    L.tileLayer(opts.tileUrl, { maxZoom: 19, attribution: OSM_ATTRIBUTION }).addTo(map);
+  } else {
+    const storage = opts?.storage ?? null;
+    const styles = getTileStyles(opts?.cartoKey);
+    const selected = loadTileStyleId(storage, styles);
+    const byLabel: Record<string, L.TileLayer> = {};
+    const idByLayer = new Map<L.Layer, string>();
+    for (const st of styles) {
+      const layerOpts: L.TileLayerOptions = { maxZoom: st.maxZoom, attribution: st.attribution };
+      if (st.subdomains !== undefined) layerOpts.subdomains = st.subdomains;
+      const layer = L.tileLayer(st.url, layerOpts);
+      byLabel[st.label] = layer;
+      idByLayer.set(layer, st.id);
+      if (st.id === selected) layer.addTo(map);
+    }
+    if (styles.length > 1) {
+      const control = L.control.layers(byLabel, undefined, { position: 'bottomright', collapsed: true }).addTo(map);
+      const toggle = control.getContainer()?.querySelector('.leaflet-control-layers-toggle');
+      toggle?.setAttribute('aria-label', S.mapStyle);
+      toggle?.setAttribute('title', S.mapStyle);
+      map.on('baselayerchange', (e: L.LayersControlEvent) => {
+        const id = idByLayer.get(e.layer);
+        if (isTileStyleId(id)) saveTileStyleId(storage, id);
+      });
+    }
+  }
   const group = L.layerGroup().addTo(map);
   let clickCb: ((id: string) => void) | null = null;
   let dot: L.CircleMarker | null = null;
