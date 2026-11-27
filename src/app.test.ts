@@ -1188,3 +1188,183 @@ describe('createApp persisted preferences', () => {
     expect(prefsOf(h)).toEqual({ fuel: 'diesel', sortBy: 'distance' });
   });
 });
+
+describe('createApp favorites', () => {
+  const FAV_KEY = 'tgp:favorites:v1';
+  const withFavs = (raw: string, prefs?: string) => (st: ReturnType<typeof memoryStorage>) => {
+    st.setItem(FAV_KEY, raw);
+    if (prefs !== undefined) st.setItem(PREFS_KEY, prefs);
+  };
+  const favBtns = (h: Harness) => Array.from(h.root.querySelectorAll<HTMLButtonElement>('.station-item .fav-btn'));
+  const favBtnOf = (h: Harness, brand: string) => {
+    const li = Array.from(h.root.querySelectorAll('.station-item')).find((i) => i.textContent?.includes(brand));
+    return li?.querySelector('.fav-btn') as HTMLButtonElement;
+  };
+  const rowText = (h: Harness) => rows(h).map((r) => r.textContent ?? '');
+  const markerIds = (h: Harness) => lastMarkers(h).map((m) => m.id);
+  const storedPrefs = (h: Harness) => JSON.parse(h.storage.map.get(PREFS_KEY) as string) as Record<string, unknown>;
+
+  it('F1. clicking a star persists the id; clicking again removes it and persists []', async () => {
+    const h = setup();
+    await flush();
+    favBtnOf(h, 'BETA').click();
+    expect(h.app.store.getState().favorites).toEqual(['B']);
+    expect(h.storage.map.get(FAV_KEY)).toBe('["B"]');
+    expect(favBtnOf(h, 'BETA').textContent).toBe('★');
+    expect(favBtnOf(h, 'ALFA').textContent).toBe('☆');
+    favBtnOf(h, 'BETA').click();
+    expect(h.app.store.getState().favorites).toEqual([]);
+    expect(h.storage.map.get(FAV_KEY)).toBe('[]');
+    expect(favBtnOf(h, 'BETA').textContent).toBe('☆');
+  });
+
+  it('F2. pre-seeded favorites load into state and show a filled star', async () => {
+    const h = setup({ prepare: withFavs('["A"]') });
+    expect(h.app.store.getState().favorites).toEqual(['A']);
+    await flush();
+    expect(favBtnOf(h, 'ALFA').textContent).toBe('★');
+    expect(favBtnOf(h, 'ALFA').getAttribute('aria-pressed')).toBe('true');
+    expect(favBtnOf(h, 'BETA').textContent).toBe('☆');
+  });
+
+  it.each(['{not json', '{"a":1}'])('F3. corrupt favorites %s start empty without throwing', async (raw) => {
+    let h!: Harness;
+    expect(() => {
+      h = setup({ prepare: withFavs(raw) });
+    }).not.toThrow();
+    expect(h.app.store.getState().favorites).toEqual([]);
+    await flush();
+    expect(h.app.store.getState().status).toBe('ready');
+    expect(rows(h)).toHaveLength(2);
+    expect(favBtns(h).every((b) => b.textContent === '☆')).toBe(true);
+  });
+
+  it('F4. Favoritas shows only favorites on list and map and persists scope; Todas restores', async () => {
+    const h = setup({ prepare: withFavs('["A"]') });
+    await flush();
+    btn(h, S.scopeFavorites).click();
+    expect(h.app.store.getState().scope).toBe('favorites');
+    expect(rows(h)).toHaveLength(1);
+    expect(rows(h)[0]!.textContent).toContain('ALFA');
+    expect(markerIds(h)).toEqual(['A']);
+    expect(storedPrefs(h).scope).toBe('favorites');
+    expect(btn(h, S.scopeFavorites).getAttribute('aria-pressed')).toBe('true');
+    btn(h, S.scopeAll).click();
+    expect(rows(h)).toHaveLength(2);
+    expect(markerIds(h).sort()).toEqual(['A', 'B']);
+    expect(storedPrefs(h).scope).toBe('all');
+  });
+
+  it('F5. stored favorites scope with favorites starts filtered and pressed', async () => {
+    const h = setup({
+      prepare: withFavs('["B"]', JSON.stringify({ fuel: 'g95', sortBy: 'price', scope: 'favorites' })),
+    });
+    expect(h.app.store.getState().scope).toBe('favorites');
+    await flush();
+    expect(btn(h, S.scopeFavorites).getAttribute('aria-pressed')).toBe('true');
+    expect(btn(h, S.scopeAll).getAttribute('aria-pressed')).toBe('false');
+    expect(rows(h)).toHaveLength(1);
+    expect(rows(h)[0]!.textContent).toContain('BETA');
+  });
+
+  it('F6. an invalid stored scope falls back to all', async () => {
+    const h = setup({ prepare: withFavs('["B"]', JSON.stringify({ scope: 'bogus' })) });
+    expect(h.app.store.getState().scope).toBe('all');
+    await flush();
+    expect(rows(h)).toHaveLength(2);
+  });
+
+  it('F7. favorites scope with none shows the no-favorites message and no pins', async () => {
+    const h = setup();
+    await flush();
+    btn(h, S.scopeFavorites).click();
+    expect(rows(h)).toHaveLength(0);
+    expect(h.root.querySelector('.list-state')?.textContent).toContain(S.noFavorites);
+    expect(lastMarkers(h)).toEqual([]);
+  });
+
+  it('F8. un-starring the last favorite in favorites scope shows the empty state and removes the pin', async () => {
+    const h = setup({ prepare: withFavs('["A"]', JSON.stringify({ scope: 'favorites' })) });
+    await flush();
+    expect(markerIds(h)).toEqual(['A']);
+    favBtnOf(h, 'ALFA').click();
+    expect(rows(h)).toHaveLength(0);
+    expect(h.root.querySelector('.list-state')?.textContent).toContain(S.noFavorites);
+    expect(lastMarkers(h)).toEqual([]);
+    expect(h.storage.map.get(FAV_KEY)).toBe('[]');
+  });
+
+  it('F9. toggling a favorite alone re-sends the markers in favorites scope', async () => {
+    const h = setup({ prepare: withFavs('["A"]', JSON.stringify({ scope: 'favorites' })) });
+    await flush();
+    favBtnOf(h, 'ALFA').click();
+    // re-star is impossible from an empty list; star via store-visible path instead
+    expect(markerIds(h)).toEqual([]);
+    btn(h, S.scopeAll).click();
+    favBtnOf(h, 'BETA').click();
+    btn(h, S.scopeFavorites).click();
+    expect(markerIds(h)).toEqual(['B']);
+  });
+
+  it('F10. sort toggle works within favorites scope', async () => {
+    const h = setup({ prepare: withFavs('["A","B"]', JSON.stringify({ fuel: 'g95', sortBy: 'price', scope: 'favorites' })) });
+    await flush();
+    h.geo.success(28.1, -16.7);
+    expect(btn(h, S.scopeFavorites).getAttribute('aria-pressed')).toBe('true');
+    expect(rowText(h)[0]).toContain('BETA');
+    expect(rowText(h)[1]).toContain('ALFA');
+    btn(h, S.sortNearest).click();
+    expect(rowText(h)).toHaveLength(2);
+    expect(rowText(h)[0]).toContain('ALFA');
+    expect(rowText(h)[1]).toContain('BETA');
+    btn(h, S.sortCheapest).click();
+    expect(rowText(h)[0]).toContain('BETA');
+  });
+
+  it('F11. detail star reflects state, toggles and persists; list shows the same state after Back', async () => {
+    const h = setup({ prepare: withFavs('["A"]') });
+    await flush();
+    const rowB = rows(h).find((r) => r.textContent?.includes('BETA')) as HTMLElement;
+    rowB.click();
+    await flush();
+    const star = () => h.root.querySelector('.fav-btn--detail') as HTMLButtonElement;
+    expect(star().textContent).toBe('☆');
+    expect(star().getAttribute('aria-pressed')).toBe('false');
+    star().click();
+    expect(star().textContent).toBe('★');
+    expect(star().getAttribute('aria-pressed')).toBe('true');
+    expect(h.app.store.getState().favorites).toEqual(['A', 'B']);
+    expect(h.storage.map.get(FAV_KEY)).toBe('["A","B"]');
+    (h.root.querySelector('.back-btn') as HTMLButtonElement).click();
+    await flush();
+    expect(favBtnOf(h, 'BETA').textContent).toBe('★');
+  });
+
+  it('F12. un-starring from detail in favorites scope keeps detail open; after Back the station is gone', async () => {
+    const h = setup({ prepare: withFavs('["A","B"]', JSON.stringify({ scope: 'favorites' })) });
+    await flush();
+    (rows(h).find((r) => r.textContent?.includes('ALFA')) as HTMLElement).click();
+    await flush();
+    const star = () => h.root.querySelector('.fav-btn--detail') as HTMLButtonElement;
+    star().click();
+    expect(h.app.store.getState().selectedId).toBe('A');
+    expect(star()).not.toBeNull();
+    expect(star().textContent).toBe('☆');
+    (h.root.querySelector('.back-btn') as HTMLButtonElement).click();
+    await flush();
+    expect(rows(h)).toHaveLength(1);
+    expect(rows(h)[0]!.textContent).toContain('BETA');
+    expect(markerIds(h)).toEqual(['B']);
+  });
+
+  it('F13. null storage: starring and scope switching do not throw', async () => {
+    const h = setup({ storage: null });
+    await flush();
+    expect(() => {
+      favBtnOf(h, 'ALFA').click();
+      btn(h, S.scopeFavorites).click();
+    }).not.toThrow();
+    expect(h.app.store.getState().favorites).toEqual(['A']);
+    expect(rows(h)).toHaveLength(1);
+  });
+});
