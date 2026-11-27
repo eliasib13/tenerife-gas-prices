@@ -9,6 +9,7 @@ import {
   isTileStyleId,
   loadTileStyleId,
   saveTileStyleId,
+  CARTO_MAX_NATIVE_ZOOM,
 } from './tileStyles';
 import type { StorageLike } from '../state/preferences';
 
@@ -84,6 +85,25 @@ describe('tileStyles', () => {
     expect(styleById(keyed(), 'osm').subdomains).toBe('abc');
     expect(styleById(keyed(), 'voyager').subdomains).toBeUndefined();
     expect(styleById(keyed(), 'positron').subdomains).toBeUndefined();
+  });
+
+  it('CARTO styles have maxNativeZoom 18 and maxZoom 19 (CARTO serves raster tiles only to z18)', () => {
+    expect(CARTO_MAX_NATIVE_ZOOM).toBe(18);
+    for (const id of ['voyager', 'positron']) {
+      const s = styleById(keyed(), id);
+      expect(s.maxNativeZoom).toBe(18);
+      expect(s.maxNativeZoom).toBe(CARTO_MAX_NATIVE_ZOOM);
+      expect(s.maxZoom).toBe(19);
+    }
+  });
+
+  it('osm has maxZoom 19 and no maxNativeZoom property, with or without a key', () => {
+    for (const styles of [keyed(), keyless()]) {
+      const osm = styleById(styles, 'osm');
+      expect(osm.maxZoom).toBe(19);
+      expect(osm.maxNativeZoom).toBeUndefined();
+      expect('maxNativeZoom' in osm).toBe(false);
+    }
   });
 
   it('defaultTileStyleId is voyager with a key and osm without', () => {

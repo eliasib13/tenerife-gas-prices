@@ -420,6 +420,26 @@ describe('createMapView', () => {
       expect(radios().map((x) => x.checked)).toEqual([false, true, false]);
     });
 
+    it('CARTO layers get maxNativeZoom 18 and maxZoom 19; the OSM layer has no maxNativeZoom key', () => {
+      const spy = vi.spyOn(L, 'tileLayer');
+      view = createMapView(div, { animate: false, cartoKey: 'k' });
+      const opts = spy.mock.calls.map((c) => c[1] as L.TileLayerOptions);
+      expect(opts.length).toBe(3);
+      expect(opts[0]!.maxNativeZoom).toBe(18);
+      expect(opts[0]!.maxZoom).toBe(19);
+      expect(opts[1]!.maxNativeZoom).toBe(18);
+      expect(opts[1]!.maxZoom).toBe(19);
+      expect(opts[2]!.maxZoom).toBe(19);
+      expect('maxNativeZoom' in opts[2]!).toBe(false);
+    });
+
+    it('custom tileUrl layer options have no maxNativeZoom key', () => {
+      const spy = vi.spyOn(L, 'tileLayer');
+      view = createMapView(div, { animate: false, tileUrl: 'https://example.test/{z}/{x}/{y}.png', cartoKey: 'k' });
+      const opts = spy.mock.calls[0]![1] as L.TileLayerOptions;
+      expect('maxNativeZoom' in opts).toBe(false);
+    });
+
     it('places the collapsed layers control in the bottom-right corner', () => {
       make();
       const control = div.querySelector('.leaflet-bottom.leaflet-right .leaflet-control-layers');
