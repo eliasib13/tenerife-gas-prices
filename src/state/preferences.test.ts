@@ -94,3 +94,52 @@ describe('preferences: mutation hardening', () => {
     expect(loadPrefs(memoryStorage({ 'tgp:prefs:v1': JSON.stringify({ fuel: 'g98' }) }))).toEqual({ fuel: 'g98' });
   });
 });
+
+describe('preferences: list scope', () => {
+  it('loadPrefs keeps scope favorites', () => {
+    expect(loadPrefs(memoryStorage({ 'tgp:prefs:v1': JSON.stringify({ scope: 'favorites' }) }))).toEqual({
+      scope: 'favorites',
+    });
+  });
+
+  it('loadPrefs keeps scope all', () => {
+    expect(loadPrefs(memoryStorage({ 'tgp:prefs:v1': JSON.stringify({ scope: 'all' }) }))).toEqual({ scope: 'all' });
+  });
+
+  it('loadPrefs drops an unknown string scope and keeps valid fuel and sortBy', () => {
+    const st = memoryStorage({
+      'tgp:prefs:v1': JSON.stringify({ fuel: 'g98', sortBy: 'price', scope: 'bogus' }),
+    });
+    expect(loadPrefs(st)).toEqual({ fuel: 'g98', sortBy: 'price' });
+  });
+
+  it('loadPrefs drops a non-string scope', () => {
+    const st = memoryStorage({ 'tgp:prefs:v1': JSON.stringify({ fuel: 'g98', scope: 5 }) });
+    expect(loadPrefs(st)).toEqual({ fuel: 'g98' });
+  });
+
+  it('loadPrefs of an old blob without scope has no scope key', () => {
+    const out = loadPrefs(memoryStorage({ 'tgp:prefs:v1': JSON.stringify({ fuel: 'g95', sortBy: 'distance' }) }));
+    expect(out).toEqual({ fuel: 'g95', sortBy: 'distance' });
+    expect('scope' in out).toBe(false);
+  });
+
+  it('savePrefs with scope persists it and loadPrefs round-trips it', () => {
+    const st = memoryStorage();
+    savePrefs(st, { fuel: 'g95', sortBy: 'distance', scope: 'favorites' });
+    expect(JSON.parse(st.data.get('tgp:prefs:v1')!)).toEqual({
+      fuel: 'g95',
+      sortBy: 'distance',
+      scope: 'favorites',
+    });
+    expect(loadPrefs(st)).toEqual({ fuel: 'g95', sortBy: 'distance', scope: 'favorites' });
+  });
+
+  it('savePrefs without scope writes no scope key', () => {
+    const st = memoryStorage();
+    savePrefs(st, { fuel: 'g95', sortBy: 'distance' });
+    const raw = JSON.parse(st.data.get('tgp:prefs:v1')!);
+    expect('scope' in raw).toBe(false);
+    expect(raw).toEqual({ fuel: 'g95', sortBy: 'distance' });
+  });
+});

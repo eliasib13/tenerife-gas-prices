@@ -85,12 +85,37 @@ describe('initialState', () => {
       online: true,
       fuel: 'g95',
       sortBy: 'distance',
+      scope: 'all',
+      favorites: [],
       geo: { status: 'pending', position: null, accuracyM: null },
       selectedId: null,
       sheet: 'peek',
       query: '',
       now,
     });
+  });
+
+  it('defaults scope to all and favorites to an empty list', () => {
+    const s = initialState({}, now, true);
+    expect(s.scope).toBe('all');
+    expect(s.favorites).toEqual([]);
+  });
+
+  it('applies a favorites scope from the preferences', () => {
+    expect(initialState({ scope: 'favorites' }, now, true).scope).toBe('favorites');
+  });
+
+  it('applies scope all from the preferences', () => {
+    expect(initialState({ scope: 'all' }, now, true).scope).toBe('all');
+  });
+
+  it('stores the favorites passed as the fourth argument', () => {
+    const s = initialState({}, now, true, ['a1', 'b2']);
+    expect(s.favorites).toEqual(['a1', 'b2']);
+  });
+
+  it('keeps an empty query when favorites are passed', () => {
+    expect(initialState({ scope: 'favorites' }, now, true, ['a1']).query).toBe('');
   });
 
   it('passes online and now through', () => {
